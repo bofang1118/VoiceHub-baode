@@ -16,28 +16,6 @@ import {
   type SourceStatus
 } from '~/utils/musicSources'
 import { getBilibiliTrackUrl, searchBilibili, parseBilibiliId } from '~/utils/bilibiliSource'
-import CryptoJS from 'crypto-js'
-
-/**
- * 获取 NextMusic 动态 Token
- */
-const getNextMusicToken = () => {
-  const currentMinute = Math.floor(Date.now() / 60000)
-  const rawString = `suxiaoqings:${currentMinute}`
-  return CryptoJS.MD5(rawString).toString().toLowerCase()
-}
-
-/**
- * NextMusic 通用请求头
- */
-const NEXTMUSIC_HEADERS = {
-  'Content-Type': 'application/json',
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  Origin: 'https://nextmusic.toubiec.cn',
-  Referer: 'https://nextmusic.toubiec.cn/'
-}
-
 /**
  * 音源管理器 Composable
  */
@@ -232,6 +210,7 @@ export const useMusicSources = () => {
           artist: item.singer?.replace(/、/g, '/') || '未知艺术家',
           cover: item.img,
           album: item.albumName,
+          albumId: item.albumId,
           duration: isNetease ? item.duration * 1000 : item.duration, // Netease uses ms, Tencent uses s
           musicPlatform: platform,
           musicId: id?.toString(),
@@ -492,6 +471,33 @@ export const useMusicSources = () => {
       }
 
       transformResponse = (data: any) => transformVkeysResponse(data, platform)
+    } else if (source.id === 'netease-rrvenn') {
+      url = `${source.baseUrl}/search?keyword=${encodeURIComponent(params.keywords)}&limit=${params.limit || 30}`
+      transformResponse = (data: any) => {
+        if (!data?.success || data?.status !== 200 || !Array.isArray(data?.data)) {
+          throw new Error(`rrvenn API错误: ${data?.message || '未知错误'}`)
+        }
+        return data.data.map((item: any) => ({
+          id: item.id,
+          title: item.name,
+          artist: typeof item.artists === 'string'
+            ? item.artists
+            : (Array.isArray(item.artists)
+              ? item.artists.map((a: any) => a.name || a).join('/')
+              : (item.artist_string || '未知艺术家')),
+          cover: item.picUrl,
+          album: item.album,
+          albumId: item.albumId,
+          duration: 0,
+          musicPlatform: 'netease',
+          musicId: item.id?.toString(),
+          sourceInfo: {
+            source: 'netease-rrvenn',
+            originalId: item.id?.toString(),
+            fetchedAt: new Date()
+          }
+        }))
+      }
     } else {
       // 网易云备用API
       // 如果提供了cookie，添加到查询参数中
@@ -644,7 +650,7 @@ export const useMusicSources = () => {
     }
 
     let url: string
-    let fetchOptions: any = {
+    const fetchOptions: any = {
       timeout: source.timeout || config.value.timeout,
       headers: {
         'Content-Type': 'application/json',
@@ -658,41 +664,33 @@ export const useMusicSources = () => {
       // 默认使用网易云端点进行详情搜索
       url = `${source.baseUrl}/netease?word=${encodeURIComponent(ids)}&num=50`
       transformResponse = (data: any) => transformVkeysResponse(data, 'netease')
-    } else if (source.id === 'nextmusic') {
-      // NextMusic API
-      url = `${source.baseUrl}/getSongInfo`
-      fetchOptions.method = 'POST'
-      fetchOptions.headers = {
-        ...fetchOptions.headers,
-        ...NEXTMUSIC_HEADERS
-      }
-      fetchOptions.body = {
-        id: ids,
-        token: getNextMusicToken()
-      }
+    } else if (source.id === 'netease-rrvenn') {
+      const level = mapQualityToLevel(4)
+      url = `${source.baseUrl}/Song_V1`
+      fetchOptions.params = { url: ids, level, type: 'json' }
       transformResponse = (response: any) => {
-        if (response.code !== 200 || !response.data) {
+        if (response?.status !== 200 || !response?.data) {
           throw new Error(`API响应错误: ${response.message || '未知错误'}`)
         }
         const data = response.data
+        const lastLine = (data.lyric || '').split('\n').filter((l: string) => l.trim()).pop() || ''
+        const match = lastLine.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\]/)
         let durationMs = 0
-        if (data.duration) {
-          const parts = data.duration.split(':').reverse()
-          durationMs = parts.reduce((acc: number, val: string, idx: number) => acc + parseInt(val, 10) * Math.pow(60, idx), 0) * 1000
+        if (match) {
+          durationMs = (parseInt(match[1], 10) * 60 + parseInt(match[2], 10)) * 1000 + parseInt(match[3].padEnd(3, '0'), 10)
         }
         return [{
           id: data.id,
           title: data.name,
-          artist: data.singer || '未知艺术家',
-          cover: data.picimg,
-          album: data.album,
+          artist: data.ar_name || '未知艺术家',
+          cover: data.pic,
+          album: data.al_name,
           duration: durationMs,
-          fee: data.free ? 0 : 1, // 粗略映射
           musicPlatform: 'netease',
-          musicId: data.id.toString(),
+          musicId: data.id?.toString(),
           sourceInfo: {
-            source: 'nextmusic',
-            originalId: data.id.toString(),
+            source: 'netease-rrvenn',
+            originalId: data.id?.toString(),
             fetchedAt: new Date()
           }
         }]
@@ -882,11 +880,11 @@ export const useMusicSources = () => {
         // 网易云音乐平台（默认）
         const neteaseSource = enabledSources.find((source) => source.id.includes('netease-backup'))
         const vkeysSource = enabledSources.find((source) => source.id === 'vkeys')
-        const nextmusicSource = enabledSources.find((source) => source.id === 'nextmusic')
+        const rrvennSource = enabledSources.find((source) => source.id === 'netease-rrvenn')
 
         const orderedSources = hasNeteaseLogin
-          ? [neteaseSource, nextmusicSource, vkeysSource]
-          : [nextmusicSource, neteaseSource]
+          ? [neteaseSource, rrvennSource, vkeysSource]
+          : [rrvennSource, neteaseSource]
 
         for (const source of orderedSources) {
           if (source) {
@@ -904,7 +902,7 @@ export const useMusicSources = () => {
         const otherSources = enabledSources.filter(
           (source) =>
             source.id !== 'vkeys' &&
-            source.id !== 'nextmusic' &&
+            source.id !== 'netease-rrvenn' &&
             !source.id.includes('netease-backup') &&
             !source.id.startsWith('meting-')
         )
@@ -926,11 +924,10 @@ export const useMusicSources = () => {
           if (source.id === 'bilibili') {
             const result = await getBilibiliTrackUrl(idParam, options?.bilibiliCid)
             url = result.url
-          } else if (source.id === 'nextmusic') {
-            // NextMusic API (只支持网易云)
+          } else if (source.id === 'netease-rrvenn') {
+            // rrvenn API (只支持网易云)
             let neteaseQuality: number | null = null
 
-            // 优先使用传入的 quality 参数
             if (quality !== undefined && quality !== null) {
               neteaseQuality = Number(quality)
             } else {
@@ -939,7 +936,6 @@ export const useMusicSources = () => {
                 const { getQuality } = useAudioQuality()
                 neteaseQuality = Number(getQuality('netease'))
               } catch (error) {
-                // 忽略错误
               }
             }
 
@@ -949,19 +945,13 @@ export const useMusicSources = () => {
 
             const level = mapQualityToLevel(neteaseQuality)
 
-            const nextmusicResp = await $fetch(`${source.baseUrl}/getSongUrl`, {
-              method: 'POST',
-              headers: NEXTMUSIC_HEADERS,
-              body: {
-                id: idParam,
-                level: level,
-                token: getNextMusicToken()
-              },
+            const rrvennResp = await $fetch(`${source.baseUrl}/song`, {
+              params: { url: idParam, level },
               timeout: source.timeout || 8000
             })
 
-            if (nextmusicResp?.code === 200 && nextmusicResp?.data?.url) {
-              url = String(nextmusicResp.data.url)
+            if (rrvennResp?.success && rrvennResp?.data?.url) {
+              url = String(rrvennResp.data.url)
             }
           } else if (source.id === 'vkeys') {
             // Vkeys API
@@ -1255,30 +1245,6 @@ export const useMusicSources = () => {
         }
       }
 
-      // 辅助函数：获取 NextMusic 歌词
-      const fetchNextMusic = async () => {
-        if (platform !== 'netease' || !nextmusicSource) return
-        try {
-          const resp = await $fetch(`${nextmusicSource.baseUrl}/getSongLyric`, {
-            method: 'POST',
-            headers: NEXTMUSIC_HEADERS,
-            body: {
-              id: id.toString(),
-              token: getNextMusicToken()
-            },
-            timeout: nextmusicSource.timeout || 8000
-          })
-          if (resp?.code === 200 && resp?.data) {
-            const d = resp.data
-            if (d.lrc) resultData.lrc = d.lrc
-            if (d.tlyric) resultData.trans = d.tlyric
-            if (d.lrc) hasResult = true
-          }
-        } catch (e) {
-          console.warn('[getLyrics] NextMusic 获取失败:', e)
-        }
-      }
-
       // 辅助函数：获取 QQ 音乐 (vkeys)
       const fetchQM = async () => {
         if (!vkeysSource) return
@@ -1348,11 +1314,6 @@ export const useMusicSources = () => {
           await fetchQM()
         }
         await Promise.all([fetchAMLL(), fetchOfficial()])
-      }
-
-      // 如果网易云官方等渠道没有获取到结果，尝试 NextMusic
-      if (!hasResult && platform === 'netease') {
-        await fetchNextMusic()
       }
 
       // 检查是否有结果
@@ -1435,17 +1396,18 @@ export const useMusicSources = () => {
           artist: song.singer || song.artist || '未知艺术家',
           cover: song.cover,
           album: song.album,
+          albumId: song.albumId,
           duration: song.duration || song.dt,
           musicPlatform: 'tencent',
           musicId: (song.id || song.musicId)?.toString(),
-          url: song.url, // 添加vkeys API返回的播放链接
-          hasUrl: !!song.url, // 标记是否有播放链接
+          url: song.url,
+          hasUrl: !!song.url,
           sourceInfo: {
             source: 'vkeys',
             originalId: (song.id || song.musicId)?.toString(),
             fetchedAt: new Date(),
-            mid: song.mid, // QQ音乐特有的mid字段
-            vid: song.vid, // QQ音乐特有的vid字段
+            mid: song.mid,
+            vid: song.vid,
             quality: song.quality,
             pay: song.pay,
             subtitle: song.subtitle,
@@ -1470,6 +1432,7 @@ export const useMusicSources = () => {
           artist: song.singer || '未知艺术家',
           cover: song.cover?.trim(), // 去除可能的空格
           album: song.album,
+          albumId: song.albumId,
           duration: song.interval || song.time, // 网易云使用interval字段表示时长，备用time字段
           musicPlatform: 'netease',
           musicId: song.id?.toString(),
@@ -1523,6 +1486,7 @@ export const useMusicSources = () => {
           : item.singer || '',
         cover: item.albumImage || item.cover || '',
         album: item.album || '',
+        albumId: item.albumID ?? item.albumId,
         duration,
         musicPlatform: 'tencent',
         musicId: id?.toString(),
@@ -1654,6 +1618,7 @@ export const useMusicSources = () => {
           let cover: string | null = null
           let artist: string = '未知艺术家'
           let album: string | undefined
+          let albumId: string | number | undefined
           let duration: number = 0
           let musicId = item.id?.toString()
 
@@ -1665,6 +1630,7 @@ export const useMusicSources = () => {
               cover = item.al?.picUrl || null
               artist = item.ar?.map((a: any) => a.name).join('/') || '未知艺术家'
               album = item.al?.name
+              albumId = item.al?.id
               duration = item.dt || 0
             } else {
               // search接口响应，需要从详情中获取信息
@@ -1676,6 +1642,7 @@ export const useMusicSources = () => {
                   : null)
               artist = item.artists?.map((a: any) => a.name).join('/') || '未知艺术家'
               album = item.album?.name
+              albumId = item.album?.id || detail?.al?.id
               duration = item.duration || 0
             }
           } else {
@@ -1719,6 +1686,7 @@ export const useMusicSources = () => {
             artist,
             cover,
             album,
+            albumId,
             duration,
             musicPlatform: isSongType ? 'netease' : 'netease-podcast',
             musicId: musicId,

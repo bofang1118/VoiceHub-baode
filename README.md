@@ -4,7 +4,7 @@
 
 <div align="center">
 
-[交流群](https://qm.qq.com/cgi-bin/qm/qr?k=5DV4vGlqn82YaNi7a3xW4zjmS8ZUr6cz&jump_from=webapi&authKey=axAl02PMsIVVAwrXij0YUUrOrUTeLpqLipu5XcTvyBUOzeWaOnicBB+fmBwNJs5S) | [使用学校收集表](https://laoshuikaixue.feishu.cn/share/base/form/shrcniUKakpNYP6KH7qrU20qq5e) | [项目宣传片](https://www.bilibili.com/video/BV1B9ArzMEkA)
+[交流群](https://qm.qq.com/cgi-bin/qm/qr?k=5DV4vGlqn82YaNi7a3xW4zjmS8ZUr6cz&jump_from=webapi&authKey=axAl02PMsIVVAwrXij0YUUrOrUTeLpqLipu5XcTvyBUOzeWaOnicBB+fmBwNJs5S) | [使用学校收集表](https://laoshuikaixue.feishu.cn/share/base/form/shrcniUKakpNYP6KH7qrU20qq5e) | [项目宣传片](https://www.bilibili.com/video/BV1B9ArzMEkA) | [赞助支持](/#sponsor)
 
 </div>
 
@@ -164,6 +164,13 @@ VoiceHub 支持通过 Docker 进行容器化部署，提供了多种部署方式
 #### 方式一：使用 Docker Compose（推荐）
 
 这是最简单的部署方式，会自动创建应用和数据库容器。
+
+
+##### 使用预构建镜像
+
+查看 [docker-compose](/docker-compose) 并选择适合的配置文件
+
+##### 本地构建镜像
 
 1. 克隆项目
 
@@ -569,6 +576,8 @@ VoiceHub/
 │   │   │   ├── ChangePasswordForm.vue # 修改密码表单
 │   │   │   ├── LoginForm.vue         # 登录表单
 │   │   │   ├── OAuthBindingCard.vue  # OAuth绑定卡片
+│   │   │   ├── CaptchaInput.vue      # 图形验证码输入组件
+│   │   │   ├── TurnstileWidget.vue   # Cloudflare Turnstile验证组件
 │   │   │   ├── OAuthButtons.vue      # OAuth登录按钮组
 │   │   │   ├── TwoFactorSetup.vue    # 双重认证设置组件
 │   │   │   └── TwoFactorVerify.vue   # 双重认证验证组件
@@ -581,6 +590,7 @@ VoiceHub/
 │   │   │       ├── AMLyric.vue        # Apple Music风格歌词
 │   │   │       └── DefaultLyric.vue   # 默认风格歌词
 │   │   ├── Songs/             # 歌曲相关组件
+│   │   │   ├── AlbumDetailsModal.vue   # 网易云音乐专辑详情弹窗
 │   │   │   ├── BilibiliEpisodesModal.vue # Bilibili剧集选择弹窗
 │   │   │   ├── DuplicateSongModal.vue # 重复歌曲处理对话框
 │   │   │   ├── ImportSongsModal.vue   # 导入歌曲弹窗
@@ -617,7 +627,10 @@ VoiceHub/
 │   │   │   ├── Notification.vue       # 单个通知组件
 │   │   │   ├── NotificationContainer.vue # 通知容器组件
 │   │   │   ├── PageTransition.vue     # 页面过渡动画
-│   │   │   └── ProgressBar.vue        # 进度条组件
+│   │   │   ├── ProgressBar.vue        # 进度条组件
+│   │   │   ├── AppLoadingScreen.vue   # 启动加载屏幕组件
+│   │   │   ├── SongComments.vue       # 网易云音乐评论组件
+│   │   │   └── WarpCanvas.vue         # 动态画布背景组件
 │   │   ├── year-review/       # 年度回顾组件
 │   │   └── SiteFooter.vue         # 站点页脚
 │   ├── composables/           # Vue 3 组合式API
@@ -817,6 +830,8 @@ VoiceHub/
 │   │   │   └── netease/           # 网易云增强接口代理
 │   │   │       └── [...path].ts   # 转发网易云API请求
 │   │   ├── auth/           # 认证API
+│   │   │   ├── captcha.get.ts         # 图形验证码
+│   │   │   ├── oauth-register-options.get.ts # OAuth注册选项
 │   │   │   ├── 2fa/             # 2FA验证API
 │   │   │   │   ├── send-email.post.ts # 发送2FA验证邮件
 │   │   │   │   └── verify.post.ts     # 验证2FA代码
@@ -907,6 +922,7 @@ VoiceHub/
 │   │   ├── sys/            # 系统辅助API
 │   │   │   └── time.get.ts          # 获取校准后的服务器时间
 │   │   ├── system/         # 系统API
+│   │   │   ├── instance.get.ts      # 实例信息
 │   │   │   ├── location.get.ts      # 获取系统位置信息
 │   │   │   ├── reconnect.post.ts    # 重连数据库
 │   │   │   └── status.get.ts        # 系统状态
@@ -1737,6 +1753,22 @@ const transformMusicApiResponse = (response: any): any[] => {
 }
 ```
 
+## 贡献说明
+
+如果您希望为 VoiceHub 贡献代码，请注意以下几点，特别是涉及数据库变更时：
+
+1. **数据库迁移文件**：
+   - 任何对 `schema.ts` 的更改都**必须**伴随相应的迁移文件。
+   - 迁移文件需要使用有意义的命名。请通过命令 `pnpm exec drizzle-kit generate --name=your_meaningful_name` 生成。
+2. **备份与恢复支持**：
+   - 当向系统设置（`systemSettings`）或其它关键表添加新字段时，**必须**同步更新数据备份和恢复的相关端点。
+   - 需要检查并更新的文件：
+     - `server/api/admin/backup/restore.post.ts`（`systemSettingsFields` 数组等）
+     - `server/api/admin/backup/restore-chunk.post.ts`（`fields` 数组等）
+3. **提交规范**：
+   - 请确保在提交 PR 前至少在本地测试过相关功能。
+   - 请使用标准的 Git 提交规范。
+
 ## 音乐服务免责声明
 
 VoiceHub 是一款开源的校园广播站点歌管理系统。本软件遵循 GPLv3 协议开源，但请注意在使用过程中涉及的第三方服务和内容可能受相关法律法规限制。
@@ -1757,6 +1789,31 @@ VoiceHub 是一款开源的校园广播站点歌管理系统。本软件遵循 G
 - 若版权方认为相关功能或接口使用侵犯其合法权益，请联系我们，我们将立即配合整改。
 
 用户使用本系统即表示已阅读、理解并同意以上条款。
+
+## 隐私说明与遥测
+
+VoiceHub 内置可选的错误遥测功能，用于帮助开发者快速定位和修复系统问题。
+
+### 遥测默认状态
+- 遥测功能**默认开启**，但**可在管理员后台随时关闭**（站点配置 → 启用错误追踪与遥测）
+
+### 收集的数据范围
+系统通过 Sentry 仅收集以下**技术性信息**（不涉及任何个人隐私）：
+- **错误堆栈与消息**：前端 Vue 错误、服务端未捕获异常和未处理 Promise 拒绝的技术信息
+- **实例标识符**：系统安装时生成的随机 UUID（仅用于区分不同部署实例，不可用于识别个人）
+- **实例心跳**：系统启动时发送一条 `instance_online` 消息（仅含实例 ID），用于统计活跃部署实例数量，不包含任何业务数据
+- **请求上下文**：请求方法、URL 路径（**不含查询参数，避免泄露令牌**）、HTTP User-Agent
+- **运行时环境**：运行平台（Vercel/Netlify/自托管）、Node.js 版本、Nitro 预设
+- **前端组件名称**：出错的 Vue 组件名称（仅用于定位前端问题）
+
+### 安全保障
+- 所有 HTTP 4xx 业务错误（如认证失败、权限不足）**自动忽略**，不会上报 Sentry
+- 前端网络离线状态和浏览器扩展产生的错误**自动过滤**
+- 数据通过加密通道传输至 Sentry
+- 遥测开关变更即时生效，无需重启服务
+
+### 数据接收方
+错误数据由 [Sentry](https://sentry.io/) 处理，仅用于错误排查与系统稳定性改进。
 
 ## 致谢
 
@@ -1785,7 +1842,7 @@ Thanks goes to these wonderful people:
 - [Bilibili-audio-extraction](https://github.com/rio4raki/Bilibili-audio-extraction) (哔哩哔哩音频流获取参考)
 - [SPlayer](https://github.com/imsyy/SPlayer)
 - [official-website - Sparkinit](https://github.com/Sparkinit/official-website)
-- [Netease_url](https://github.com/Suxiaoqinx/Netease_url)
+- [MusicAPI-rrvenn](https://music.rrvenn.cn)
 
 ## 许可证
 
@@ -1804,6 +1861,16 @@ Thanks goes to these wonderful people:
 本项目有对应的原生鸿蒙版本：https://github.com/laoshuikaixue/VoiceHub-hmos
 
 该项目通过创新的混合架构设计，实现了Web端Vue音频播放器与鸿蒙原生端的跨平台音频控制同步
+
+<h2 id="sponsor">赞助支持</h2>
+
+如果这个项目对你有帮助，欢迎赞助支持，让我有更多动力持续维护和更新。
+
+<div align="center">
+
+<img width="200" alt="wechat" src="https://github.com/user-attachments/assets/0cd13f75-bd9c-4486-8bba-a8895e2e55fd" />
+
+</div>
 
 ---
 

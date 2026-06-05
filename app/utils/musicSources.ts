@@ -131,9 +131,9 @@ export const MUSIC_SOURCE_CONFIG: MusicSourceConfig = {
       }
     },
     {
-      id: 'nextmusic',
-      name: 'NextMusic (未登录优先)',
-      baseUrl: 'https://nextmusic.toubiec.cn/api',
+      id: 'netease-rrvenn',
+      name: '网易云备用源(rrvenn)',
+      baseUrl: 'https://music.rrvenn.cn',
       priority: 1.5,
       enabled: true,
       timeout: 8000

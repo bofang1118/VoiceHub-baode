@@ -127,6 +127,8 @@ export const systemSettings = pgTable('SystemSettings', {
   id: serial('id').primaryKey(),
   createdAt: timestamp('createdAt').defaultNow().notNull(),
   updatedAt: timestamp('updatedAt').defaultNow().notNull(),
+  instanceId: text('instance_id'),
+  telemetryEnabled: boolean('telemetryEnabled').default(true).notNull(),
   enablePlayTimeSelection: boolean('enablePlayTimeSelection').default(false).notNull(),
   siteTitle: text('siteTitle'),
   siteLogoUrl: text('siteLogoUrl'),
@@ -157,7 +159,12 @@ export const systemSettings = pgTable('SystemSettings', {
   enableReplayRequests: boolean('enableReplayRequests').default(false).notNull(),
   enableCollaborativeSubmission: boolean('enableCollaborativeSubmission').default(true).notNull(),
   enableSubmissionRemarks: boolean('enableSubmissionRemarks').default(false).notNull(),
-
+  
+  // 验证码配置
+  captchaProvider: text('captchaProvider').default('graphic').notNull(),
+  turnstileSiteKey: text('turnstileSiteKey'),
+  turnstileSecretKey: text('turnstileSecretKey'),
+  
   // OAuth 配置
   allowOAuthRegistration: boolean('allowOAuthRegistration').default(false).notNull(),
   oauthRedirectUri: text('oauthRedirectUri'),
@@ -191,6 +198,9 @@ export const systemSettings = pgTable('SystemSettings', {
   customOAuthNameField: text('customOAuthNameField'),
   customOAuthEmailField: text('customOAuthEmailField'),
   customOAuthAvatarField: text('customOAuthAvatarField'),
+  // 图形验证码
+  captchaEnabled: boolean('captchaEnabled').default(false).notNull(),
+  captchaMaxFailures: integer('captchaMaxFailures').default(3).notNull(),
 });
 
 // 歌曲黑名单表
