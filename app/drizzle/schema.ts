@@ -1,4 +1,4 @@
-import {bigint, boolean, integer, pgEnum, pgTable, serial, text, timestamp, uuid, varchar, unique} from 'drizzle-orm/pg-core';
+import {bigint, boolean, index, integer, pgEnum, pgTable, serial, text, timestamp, uuid, varchar, unique} from 'drizzle-orm/pg-core';
 import {relations} from 'drizzle-orm';
 
 // 枚举定义
@@ -69,7 +69,9 @@ export const songs = pgTable('Song', {
   submissionNotePublic: boolean('submissionNotePublic').default(false).notNull(),
   hitRequestId: integer(),
   cardCodeId: integer('cardCodeId').references(() => cardCodes.id, { onDelete: 'set null' }),
-});
+}, (table) => [
+  index('song_card_code_id_idx').on(table.cardCodeId)
+]);
 
 // 投票表
 export const votes = pgTable('Vote', {
@@ -169,6 +171,7 @@ export const systemSettings = pgTable('SystemSettings', {
   // 卡密点歌相关开关（用于允许用户使用卡密或强制使用卡密投稿）
   enableCardCodeRequests: boolean('enableCardCodeRequests').default(false).notNull(),
   requireCardCodeForRequests: boolean('requireCardCodeForRequests').default(false).notNull(),
+  enableCardCodeLimitBypass: boolean('enableCardCodeLimitBypass').default(false).notNull(),
   
   // 验证码配置
   captchaProvider: text('captchaProvider').default('graphic').notNull(),
@@ -194,6 +197,12 @@ export const systemSettings = pgTable('SystemSettings', {
   googleOAuthEnabled: boolean('googleOAuthEnabled').default(false).notNull(),
   googleClientId: text('googleClientId'),
   googleClientSecret: text('googleClientSecret'),
+  // 聚合登陆
+  aggregateOAuthEnabled: boolean('aggregateOAuthEnabled').default(false).notNull(),
+  aggregateOAuthAppId: text('aggregateOAuthAppId'),
+  aggregateOAuthAppKey: text('aggregateOAuthAppKey'),
+  aggregateOAuthLoginType: text('aggregateOAuthLoginType').default('qq'),
+  aggregateOAuthEndpoint: text('aggregateOAuthEndpoint').default('https://a.idcfx.net/connect.php'),
   // Custom OAuth2
   customOAuthEnabled: boolean('customOAuthEnabled').default(false).notNull(),
   customOAuthDisplayName: text('customOAuthDisplayName'),
@@ -564,13 +573,15 @@ export const cardCodes = pgTable('CardCode', {
 export const cardCodeRedeemLogs = pgTable('CardCodeRedeemLog', {
   id: serial('id').primaryKey(),
   createdAt: timestamp('createdAt').defaultNow().notNull(),
-  cardCodeId: integer('cardCodeId').notNull().references(() => cardCodes.id, { onDelete: 'restrict' }),
+  cardCodeId: integer('cardCodeId').references(() => cardCodes.id, { onDelete: 'set null' }),
   codeSnapshot: text('codeSnapshot').notNull(),
   redeemedBy: integer('redeemedBy').notNull().references(() => users.id, { onDelete: 'restrict' }),
   redeemedAt: timestamp('redeemedAt').defaultNow().notNull(),
   source: text('source').default('UNKNOWN').notNull(),
   songId: integer('songId').references(() => songs.id, { onDelete: 'set null' })
-});
+}, (table) => [
+  index('card_code_redeem_log_card_code_id_idx').on(table.cardCodeId)
+]);
 
 export type CardCode = typeof cardCodes.$inferSelect;
 export type NewCardCode = typeof cardCodes.$inferInsert;

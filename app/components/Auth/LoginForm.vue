@@ -55,6 +55,7 @@
             id="username"
             v-model="username"
             :class="{ 'input-error': error }"
+            :autocomplete="!isBindMode && !showCreateMode ? 'username webauthn' : 'username'"
             :placeholder="showCreateMode ? '3-30个字符，可使用英文、数字、下划线、连字符' : '请输入账号名'"
             required
             type="text"
@@ -308,7 +309,7 @@
         @click="handleWebAuthnLogin"
       >
         <Fingerprint :size="20" class="webauthn-icon" />
-        <span>使用 Windows Hello / Passkey 登录</span>
+        <span>使用 Passkey 登录</span>
       </button>
     </div>
 
@@ -330,14 +331,23 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+<script setup>
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useAuth } from '~/composables/useAuth'
 import { useSiteConfig } from '~/composables/useSiteConfig'
 import { getProviderDisplayName } from '~/utils/oauth'
 import { validateOAuthRegisterCredentials } from '~/utils/oauth-register'
-import { startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser'
-import { Fingerprint } from 'lucide-vue-next'
+import {
+  browserSupportsWebAuthn,
+  browserSupportsWebAuthnAutofill,
+  WebAuthnAbortService
+} from '@simplewebauthn/browser'
+import {
+  getWebAuthnErrorMessage,
+  signalUnknownWebAuthnCredential,
+  startWebAuthnAuthentication
+} from '~/utils/webauthn'
+import { Fingerprint } from '@lucide/vue'
 import { usePasswordStrength } from '~/composables/usePasswordStrength'
 import CustomSelect from '~/components/UI/Common/CustomSelect.vue'
 import CaptchaInput from './CaptchaInput.vue'
@@ -349,16 +359,16 @@ const route = useRoute()
 const isBindMode = computed(() => route.query.action === 'bind')
 const providerUsername = computed(() => route.query.username || '')
 const providerName = computed(() => {
-  const provider = (route.query.provider as string) || '第三方'
+  const provider = route.query.provider || '第三方'
   return getProviderDisplayName(provider)
 })
 // 图形验证码与Turnstile相关
 const isGraphicCaptchaRequired = ref(false)
 const captchaId = ref('')
 const captchaInput = ref('')
-const captchaRef = ref<{ refreshCaptcha: () => void } | null>(null)
+const captchaRef = ref(null)
 const turnstileToken = ref('')
-const turnstileRef = ref<{ reset: () => void } | null>(null)
+const turnstileRef = ref(null)
 
 const showCaptcha = computed(() => {
   // 如果后端明确要求显示验证码，则优先显示
@@ -387,10 +397,10 @@ const showConfirmPassword = ref(false)
 const isWebAuthnSupported = ref(false)
 const classOptionsLoading = ref(false)
 const classOptionsLoaded = ref(false)
-const classOptions = ref<{ grade: string, class: string }[]>([])
+const classOptions = ref([])
 const show2FA = ref(false)
 const userId2FA = ref(0)
-const methods2FA = ref<string[]>([])
+const methods2FA = ref([])
 const tempToken2FA = ref('')
 const maskedEmail2FA = ref('')
 const showCreateMode = ref(false)
@@ -427,10 +437,7 @@ const fetchClassOptions = async () => {
 
   classOptionsLoading.value = true
   try {
-    const response = await $fetch<{
-      success: boolean
-      classes: { grade: string, class: string }[]
-    }>('/api/auth/oauth-register-options')
+    const response = await $fetch('/api/auth/oauth-register-options')
 
     if (response.success) {
       classOptions.value = response.classes || []
@@ -448,30 +455,36 @@ const handleGradeChange = () => {
   studentClass.value = ''
 }
 
+// 安全获取重定向路径，防止开放重定向攻击
+const getSafeRedirect = (fallback = '/') => {
+  const queryRedirect = route.query.redirect
+  // 防御重复 query 参数导致的数组类型
+  const redirect = (Array.isArray(queryRedirect) ? queryRedirect[0] : queryRedirect) || fallback
+  // 仅允许同源相对路径，排除 // 和 \/ 绕过
+  return redirect.startsWith('/') && !redirect.startsWith('//') && !redirect.startsWith('/\\') ? redirect : fallback
+}
+
 const handle2FASuccess = async () => {
-  if (auth.isAdmin.value) {
-    await navigateTo('/dashboard')
-  } else {
-    await navigateTo('/')
-  }
+  await navigateTo(getSafeRedirect(auth.isAdmin.value ? '/dashboard' : '/'))
 }
 
 onMounted(async () => {
+  const isApiSupported = browserSupportsWebAuthn()
+  isWebAuthnSupported.value = isApiSupported
+
+  // Conditional UI 应尽早启动，让支持的浏览器通过账号输入框原生推荐 Passkey。
+  if (isApiSupported && !isBindMode.value) {
+    void startConditionalWebAuthnLogin()
+  }
+
   await fetchSiteConfig()
   if (isBindMode.value) {
     await fetchClassOptions()
   }
+})
 
-  const isApiSupported = browserSupportsWebAuthn()
-  if (isApiSupported && window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) {
-    try {
-      await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
-    } catch (e) {
-      console.warn('WebAuthn 平台认证器检查失败:', e)
-    }
-  }
-  // 兼容外部安全密钥（如 YubiKey），即使没有内置平台认证器也允许尝试
-  isWebAuthnSupported.value = isApiSupported
+onUnmounted(() => {
+  WebAuthnAbortService.cancelCeremony()
 })
 
 watch(showCreateMode, async (enabled) => {
@@ -506,7 +519,7 @@ const handleLogin = async () => {
   loading.value = true
 
   // 构建请求体，包含验证码信息
-  const requestBody: any = {
+  const requestBody = {
     username: username.value,
     password: password.value,
   }
@@ -542,12 +555,8 @@ const handleLogin = async () => {
 
     // 登录成功，刷新认证状态
     await auth.initAuth()
-    if (auth.isAdmin.value) {
-      navigateTo('/dashboard')
-    } else {
-      navigateTo('/')
-    }
-  } catch (err: any) {
+    return navigateTo(getSafeRedirect(auth.isAdmin.value ? '/dashboard' : '/'))
+  } catch (err) {
     // 正确的错误路径：err.data = { statusCode, message, data: { captchaRequired } }
     const innerData = err.data?.data
     error.value = err.data?.message || err.message || 
@@ -607,9 +616,9 @@ const handleRegisterOAuth = async () => {
     if (response.success) {
       // 账户创建成功，刷新认证状态
       await auth.initAuth()
-      await navigateTo('/')
+      return navigateTo(getSafeRedirect())
     }
-  } catch (err: any) {
+  } catch (err) {
     const apiError = err
     error.value = apiError.data?.message || apiError.message || apiError.statusMessage || '注册失败，请稍后重试'
     // 当发生用户名冲突时 (HTTP 409 Conflict)，清空用户名字段
@@ -621,15 +630,18 @@ const handleRegisterOAuth = async () => {
   }
 }
 
-const handleWebAuthnLogin = async () => {
-  loading.value = true
-  error.value = ''
-  
+const isWebAuthnCeremonyAborted = (webAuthnError) =>
+  webAuthnError?.code === 'ERROR_CEREMONY_ABORTED' || webAuthnError?.name === 'AbortError'
+
+const runWebAuthnLogin = async ({ useBrowserAutofill = false, showErrors = true } = {}) => {
+  let options
+  let credential
+
   try {
     // 1. 获取登录选项
-    const options = await $fetch('/api/auth/webauthn/login/options', { method: 'POST' })
+    options = await $fetch('/api/auth/webauthn/login/options', { method: 'POST' })
     // 2. 调用浏览器 WebAuthn API
-    const credential = await startAuthentication(options)
+    credential = await startWebAuthnAuthentication(options, useBrowserAutofill)
     // 3. 验证登录
     const verification = await $fetch('/api/auth/webauthn/login/verify', {
       method: 'POST',
@@ -639,12 +651,46 @@ const handleWebAuthnLogin = async () => {
     if (verification.success) {
       // 登录成功
       await auth.initAuth()
-      await navigateTo(verification.redirect || '/')
+      return navigateTo(getSafeRedirect(auth.isAdmin.value ? '/dashboard' : '/'))
     }
   } catch (e) {
+    if (isWebAuthnCeremonyAborted(e)) return
+    if (!showErrors && !credential) return
+
     console.error('WebAuthn 登录错误:', e)
-    const apiError = e as { data?: { message?: string }, message?: string, statusMessage?: string }
-    error.value = apiError.data?.message || apiError.message || apiError.statusMessage || 'Passkey 登录失败'
+    const message =
+      e.data?.message || e.message || e.statusMessage || 'Passkey 登录失败'
+
+    if (credential?.id && options?.rpId && message === '未找到该 Passkey 关联的账号') {
+      const signaled = await signalUnknownWebAuthnCredential({
+        credentialId: credential.id,
+        rpId: options.rpId
+      })
+      error.value = signaled
+        ? '该 Passkey 已失效，系统已收到清理通知，请重新添加'
+        : '该 Passkey 已从 VoiceHub 删除，请先在设备密码保险箱中删除后重新添加'
+    } else {
+      error.value = getWebAuthnErrorMessage(e, 'Passkey 登录失败')
+    }
+  }
+}
+
+const startConditionalWebAuthnLogin = async () => {
+  try {
+    if (await browserSupportsWebAuthnAutofill()) {
+      await runWebAuthnLogin({ useBrowserAutofill: true, showErrors: false })
+    }
+  } catch (e) {
+    console.warn('Passkey 自动填充初始化失败:', e)
+  }
+}
+
+const handleWebAuthnLogin = async () => {
+  loading.value = true
+  error.value = ''
+
+  try {
+    await runWebAuthnLogin()
   } finally {
     loading.value = false
   }

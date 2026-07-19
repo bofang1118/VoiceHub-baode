@@ -697,6 +697,7 @@ export default defineEventHandler(async (event) => {
               'enableSubmissionRemarks',
               'enableCardCodeRequests',
               'requireCardCodeForRequests',
+              'enableCardCodeLimitBypass',
               'enableRequestTimeLimitation',
               'requestTimeLimitation',
               'forceBlockAllRequests',
@@ -723,6 +724,11 @@ export default defineEventHandler(async (event) => {
               'googleOAuthEnabled',
               'googleClientId',
               'googleClientSecret',
+              'aggregateOAuthEnabled',
+              'aggregateOAuthAppId',
+              'aggregateOAuthAppKey',
+              'aggregateOAuthLoginType',
+              'aggregateOAuthEndpoint',
               'customOAuthEnabled',
               'customOAuthDisplayName',
               'customOAuthAuthorizeUrl',
@@ -1030,7 +1036,7 @@ export default defineEventHandler(async (event) => {
           }
 
           case 'cardCodeRedeemLogs': {
-            let validCardCodeId = record.cardCodeId
+            let validCardCodeId = record.cardCodeId || null
             if (record.cardCodeId) {
               const mappedCardCodeId = cardCodeIdMapping.get(record.cardCodeId)
               if (mappedCardCodeId) {
@@ -1039,9 +1045,9 @@ export default defineEventHandler(async (event) => {
                 const cardCodeExists = await tx.query.cardCodes.findFirst({
                   where: eq(cardCodes.id, record.cardCodeId)
                 })
-                if (!cardCodeExists) return
+                if (!cardCodeExists) validCardCodeId = null
               }
-            } else return
+            }
 
             let validRedeemedBy = record.redeemedBy
             if (record.redeemedBy) {

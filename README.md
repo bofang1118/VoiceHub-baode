@@ -25,7 +25,7 @@
   - **OAuth 账户系统**：支持通过 GitHub、Casdoor 等 OAuth 提供商快速创建和登录账户
     - **直接创建账户**：用户通过 OAuth 认证后可创建新账户，但仍需设置本地用户名和密码
     - **账户绑定**：已有账户的用户可将 OAuth 身份绑定到现有账户，实现多平台统一登录
-    - **WebAuthn 支持**：支持 Windows Hello、生物识别和硬件安全密钥（如 YubiKey）登录
+    - **WebAuthn 支持**：支持 HarmonyOS Passkey、Windows Hello、生物识别和硬件安全密钥（如 YubiKey）登录
     - **双因素认证（2FA）**：支持 TOTP 和邮箱验证，增强账户安全性
   - **网易云音乐登录**：支持扫码登录，登录后可搜索个人歌单、收藏及播客电台内容
     - **一键添加到歌单**：登录后支持将排期中的网易云音乐歌曲一键添加到个人歌单
@@ -51,7 +51,7 @@
 - **账户安全**：
   - bcrypt 密码加密
   - 双因素认证（TOTP、邮箱验证）
-  - WebAuthn 支持（生物识别、硬件密钥）
+  - WebAuthn 支持（HarmonyOS Passkey、生物识别、硬件密钥）
   - 账户锁定和风险控制
 - **身份关联**：支持将多个 OAuth 身份绑定到同一账户，实现统一登录
 - **黑名单管理**：支持歌曲和艺术家黑名单，自动过滤不当内容
@@ -150,13 +150,29 @@
    Usage：按需调整
    Network：3000 ，开 Public Access
    Environment Variables：
-      DATABASE_URL=postgresql://user:password@postgres:5432/voicehub 
+      DATABASE_URL=postgresql://user:password@postgres:5432/voicehub
       # 可能需要 ?sslmode=disable
       JWT_SECRET=your-jwt-secret-here
       # 按实际情况填写
    ```
 5. **等待部署**：平台会自动构建和部署应用
 6. **访问应用**：部署完成后，您将获得一个可访问的 URL
+
+### Linux 服务器部署
+
+本项目提供了针对 Ubuntu/Debian 服务器的一键部署脚本，支持自动安装 Node.js 22、配置环境变量、安装依赖和构建项目。
+
+**一键命令：**
+
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/laoshuikaixue/VoiceHub/main/sh/main.sh)
+```
+
+如果你需要 gh-proxy 加速，使用以下命令：
+
+```bash
+bash <(curl -sL https://gh-proxy.com/https://raw.githubusercontent.com/laoshuikaixue/VoiceHub/main/sh/main.sh)
+```
 
 ### Docker 部署
 
@@ -165,7 +181,6 @@ VoiceHub 支持通过 Docker 进行容器化部署，提供了多种部署方式
 #### 方式一：使用 Docker Compose（推荐）
 
 这是最简单的部署方式，会自动创建应用和数据库容器。
-
 
 ##### 使用预构建镜像
 
@@ -212,7 +227,7 @@ docker-compose up -d
 ```bash
 docker run -d \
   -p 3000:3000 \
-  -e DATABASE_URL="postgresql://username:password@host:port/database?sslmode=require" \  
+  -e DATABASE_URL="postgresql://username:password@host:port/database?sslmode=require" \
   # 可能需要替换成 ?sslmode=disable
   -e JWT_SECRET="your-very-secure-jwt-secret-key" \
   -e NODE_ENV=production \
@@ -225,7 +240,7 @@ docker run -d \
 ```bash
 docker run -d \
   -p 3000:3000 \
-  -e DATABASE_URL="postgresql://username:password@host:port/database?sslmode=require" \  
+  -e DATABASE_URL="postgresql://username:password@host:port/database?sslmode=require" \
   # 可能需要替换成 ?sslmode=disable
   -e JWT_SECRET="your-very-secure-jwt-secret-key" \
   -e NODE_ENV=production \
@@ -247,7 +262,7 @@ docker build --no-cache -t voicehub .
 # 运行容器
 docker run -d \
   -p 3000:3000 \
-  -e DATABASE_URL="postgresql://username:password@host:port/database?sslmode=require" \  
+  -e DATABASE_URL="postgresql://username:password@host:port/database?sslmode=require" \
   # 可能需要替换成 ?sslmode=disable
   -e JWT_SECRET="your-very-secure-jwt-secret-key" \
   -e NODE_ENV=production \
@@ -255,20 +270,201 @@ docker run -d \
   voicehub
 ```
 
-### Linux 服务器部署
-
-本项目提供了针对 Ubuntu/Debian 服务器的一键部署脚本，支持自动安装 Node.js 22、配置环境变量、安装依赖和构建项目。
-
-**一键命令：**
-
-```bash
-sudo bash <(curl -sL https://raw.githubusercontent.com/laoshuikaixue/VoiceHub/main/sh/main.sh)
-```
-
 ### 飞牛 (FnOS) 部署
 
 VoiceHub 现已支持飞牛 OS (FnOS) 的 `.fpk` 安装包。
+
 - 从 [GitHub Actions](https://github.com/laoshuikaixue/VoiceHub/actions/workflows/build-fpk.yml) 获取最新版本
+
+### Nix / NixOS
+
+VoiceHub 提供了一个 Nix flake，用于构建、开发和在 NixOS 上部署。
+
+#### 前提条件
+
+- [Nix](https://nixos.org/download)（带 flake 支持）
+- PostgreSQL 数据库
+
+#### NixOS 部署
+
+将 VoiceHub 添加为 flake input：
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    voicehub.url = "github:laoshuikaixue/VoiceHub";
+  };
+
+  outputs = { self, nixpkgs, voicehub, ... }: {
+    nixosConfigurations.my-server = nixpkgs.lib.nixosSystem {
+      specialArgs = { inherit voicehub; };
+      modules = [
+        voicehub.nixosModules.default
+        ./configuration.nix
+      ];
+    };
+  };
+}
+```
+
+> [!TIP]
+> 启用 Binary Cache 可大幅加快构建速度，详见下方[使用 Binary Cache 加速构建](#使用-binary-cache-加速构建)。
+
+然后在 NixOS 配置中使用模块，根据数据库管理方式选择对应场景。
+
+```nix
+# 场景 A：自动配置本地 PostgreSQL
+# environmentFile 只需提供 JWT_SECRET，DATABASE_URL 由模块自动构造
+{ pkgs, inputs, config, ... }: {
+  imports = [ inputs.voicehub.nixosModules.default ];
+
+  services.voicehub = {
+    enable = true;
+    database.createLocally = true;
+    environmentFile = config.sops.templates."voicehub-env".path;
+    runDeployScript = true;
+  };
+
+  sops.templates."voicehub-env" = {
+    content = ''
+      JWT_SECRET=${config.sops.placeholder."voicehub/jwt-secret"}
+    '';
+  };
+}
+```
+
+```nix
+# 场景 B：手动管理数据库（Neon / Docker / 远程 PG）
+# environmentFile 需同时提供 DATABASE_URL 和 JWT_SECRET
+{ pkgs, inputs, config, ... }: {
+  imports = [ inputs.voicehub.nixosModules.default ];
+
+  services.voicehub = {
+    enable = true;
+    environmentFile = config.sops.templates."voicehub-env".path;
+    runDeployScript = true;
+  };
+
+  sops.templates."voicehub-env" = {
+    content = ''
+      DATABASE_URL=${config.sops.placeholder."voicehub/database-url"}
+      JWT_SECRET=${config.sops.placeholder."voicehub/jwt-secret"}
+    '';
+  };
+}
+```
+
+环境文件 (`sops.templates."voicehub-env".content`) 格式参考：
+
+```env
+DATABASE_URL=postgresql://voicehub:secret@localhost:5432/voicehub
+JWT_SECRET=your-very-secure-jwt-secret-key
+NUXT_PUBLIC_HOST=https://voicehub.example.com
+```
+
+推荐使用 [sops-nix](https://github.com/Mic92/sops-nix) 管理 secrets，避免明文存储在 Nix store 中。
+
+模块会自动设置 `DynamicUser`、`ProtectSystem=strict`、`NoNewPrivileges` 等安全加固。
+防火墙默认不开放端口，在配置中启用以允许外部访问：
+
+```nix
+services.voicehub.openFirewall = true;
+```
+
+应用配置并部署：
+
+```bash
+sudo nixos-rebuild switch --flake .#my-server
+```
+
+查看服务状态和日志：
+
+```bash
+systemctl status voicehub
+journalctl -u voicehub -f
+```
+
+默认监听 `0.0.0.0:3000`，可通过 `services.voicehub.host` 和 `services.voicehub.port` 修改。
+
+#### 使用 Binary Cache 加速构建
+
+VoiceHub CI 会将构建产物推送到 [Cachix](https://cachix.org) binary cache，
+下游用户可直接下载预构建的 `pnpmDeps` 和 `voicehub` 包，跳过本地构建。
+
+在你的 flake 中添加 `nixConfig` 以启用：
+
+```nix
+{
+  nixConfig = {
+    extra-substituters = [ "https://voicehub.cachix.org" ];
+    extra-trusted-public-keys = [ "voicehub.cachix.org-1:CKw4/RvZy5c0WVpyo5ZyLbJgdpHZ/+epofIwGOeIOhU=" ];
+  };
+  inputs = {
+    voicehub.url = "github:laoshuikaixue/VoiceHub";
+  };
+}
+```
+
+> [!IMPORTANT]
+> 请勿通过 `follows` 覆盖 VoiceHub 的 `nixpkgs` input。缓存中的产物使用
+> VoiceHub 自带的 nixpkgs 构建，替换后 hash 不同，无法命中缓存。
+
+#### 其他功能
+
+##### 开发环境
+
+进入开发 shell（自动提供 Node.js、pnpm、PostgreSQL 客户端）：
+
+```bash
+nix develop
+```
+
+然后在 shell 内：
+
+```bash
+cp .env.example .env   # 配置 DATABASE_URL + JWT_SECRET
+pnpm install
+pnpm run dev           # 启动开发服务器 (port 3000)
+```
+
+##### 构建
+
+```bash
+nix build              # 产出 result/bin/voicehub
+```
+
+构建产物可以直接运行（需要 `DATABASE_URL` 等环境变量）：
+
+```bash
+DATABASE_URL="postgresql://..." JWT_SECRET="..." ./result/bin/voicehub
+```
+
+或使用附带的环境文件：
+
+```bash
+nix run .#default --impure
+```
+
+> `nix run` 需要设置 `DATABASE_URL` 环境变量，否则会启动失败。
+
+##### 更新 pnpm 依赖哈希
+
+当 `pnpm-lock.yaml` 更新后，需要同步 `flake.nix` 中的 `pnpmDeps` 哈希。仓库已配置 GitHub Actions，会在 `pnpm-lock.yaml` 或 `flake.nix` 变更时自动计算新哈希并提交回触发分支。
+
+如果需要在本地手动更新，可以先将 `flake.nix` 中 `pnpmDeps.hash` 临时改为空字符串，然后运行：
+
+```bash
+nix build .#voicehub
+```
+
+Nix 会因固定输出哈希不匹配而失败，并输出 `got: sha256-...`，将该值写回 `pnpmDeps.hash` 即可。也可以使用 impure 构建辅助命令（需要网络和已安装的 pnpm）：
+
+```bash
+nix run .#build                # 在项目目录中执行，生成 .output 目录
+```
+
+---
 
 ### 本地开发部署
 
@@ -470,51 +666,64 @@ VoiceHub 实现了细粒度的权限控制系统：
 
 ## 环境变量说明
 
-| 变量名          | 必填 | 说明                              | 示例值                                                                 |
-|--------------|----|---------------------------------|---------------------------------------------------------------------|
-| DATABASE_URL | 是  | PostgreSQL数据库连接字符串              | `postgresql://username:password@host:port/database?sslmode=require` |
-| JWT_SECRET   | 是  | JWT令牌签名密钥，建议使用强随机字符串            | `your-very-secure-jwt-secret-key`                                   |
-| NODE_ENV     | 否  | 运行环境，development或production     | `production`                                                        |
-| REDIS_URL    | 否  | Redis缓存服务连接字符串，填写后自动启用Redis缓存功能 | `redis://default:password@host:port`                                |
-| NITRO_PRESET | 否  | Nitro预设                         | `vercel`                                                            |
-| NUXT_PUBLIC_HOST | 否  | 用于 CORS 和反向代理的主机名验证 | `your-app.com`                                                            |
-| NUXT_PUBLIC_SEO_CONFIG | 否  | 用于自定义 PWA/SEO 配置的 JSON 字符串 | `{"title":"VoiceHub校园广播站点歌系统","shortName":"校园广播","description":"校园广播站点歌系统 - 让你的声音被听见","logo":"/images/logo.png"}` |
+| 变量名                 | 必填 | 说明                                                 | 示例值                                                                                                                                          |
+| ---------------------- | ---- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| DATABASE_URL           | 是   | PostgreSQL数据库连接字符串                           | `postgresql://username:password@host:port/database?sslmode=require`                                                                             |
+| JWT_SECRET             | 是   | JWT令牌签名密钥，建议使用强随机字符串                | `your-very-secure-jwt-secret-key`                                                                                                               |
+| NODE_ENV               | 否   | 运行环境，development或production                    | `production`                                                                                                                                    |
+| REDIS_URL              | 否   | Redis缓存服务连接字符串，填写后自动启用Redis缓存功能 | `redis://default:password@host:port`                                                                                                            |
+| NITRO_PRESET           | 否   | Nitro预设                                            | `vercel`                                                                                                                                        |
+| NUXT_PUBLIC_HOST       | 否   | 用于 CORS 和反向代理的主机名验证                     | `your-app.com`                                                                                                                                  |
+| NUXT_PUBLIC_SEO_CONFIG | 否   | 用于自定义 PWA/SEO 配置的 JSON 字符串                | `{"title":"VoiceHub校园广播站点歌系统","shortName":"校园广播","description":"校园广播站点歌系统 - 让你的声音被听见","logo":"/images/logo.png"}` |
 
 ## OAuth 配置
 
 系统支持通过 OAuth 提供商（如 GitHub、Casdoor、Google 等）快速创建账户和登录：
 
+OAuth 运行时配置统一保存在管理员后台数据库中；环境变量仅用于兼容旧部署和后台一键导入，导入后以后台保存值为准。
+
 1. **在管理员后台配置**：
-  - 导航到系统设置 > OAuth 配置
-  - 配置基础设置：
-    - **OAuth 重定向 URI**：`https://yourdomain.com/api/auth/[provider]/callback`
-    - **OAuth State 密钥**：强随机字符串，用于 state 参数加密
-  - 启用需要的 OAuth 提供商并填写相应凭证：
-    - GitHub：Client ID / Secret
-    - Casdoor：Server URL / Client ID / Secret / Organization Name
-    - Google：Client ID / Secret
-    - 第三方 OAuth2：完整的 OAuth 端点和字段映射
+
+- 导航到系统设置 > OAuth 配置
+- 配置基础设置：
+  - **OAuth 重定向 URI**：`https://yourdomain.com/api/auth/[provider]/callback`
+  - **OAuth State 密钥**：强随机字符串，用于 state 参数加密
+- 启用需要的 OAuth 提供商并填写相应凭证：
+  - GitHub：Client ID / Secret
+  - Casdoor：Server URL / Client ID / Secret / Organization Name
+  - Google：Client ID / Secret
+  - 聚合登陆：AppID / AppKey / 接口地址，并可同时启用 QQ、微信、支付宝、抖音
+  - 第三方 OAuth2：完整的 OAuth 端点和字段映射
 
 2. **OAuth 提供商配置**：
-  在 OAuth 提供商的开发者控制台配置重定向 URI，确保与后台配置一致
+   在 OAuth 提供商的开发者控制台配置重定向 URI，确保与后台配置一致
 
 3. **账户创建流程**：
-  - 用户点击 OAuth 登录按钮
-  - 完成 OAuth 认证后，若身份未关联，用户可选择：
-    - 创建新账户：设置用户名和密码，直接创建新账户
-    - 绑定现有账户：输入现有用户名和密码进行绑定
-  - 成功后自动登录
+
+- 用户点击 OAuth 登录按钮
+- 完成 OAuth 认证后，若身份未关联，用户可选择：
+  - 创建新账户：设置用户名和密码，直接创建新账户
+  - 绑定现有账户：输入现有用户名和密码进行绑定
+- 成功后自动登录
 
 4. **安全特性**：
-  - 所有密码使用 bcrypt 加密
-  - OAuth 状态参数使用 AES 加密校验
-  - 绑定令牌有 10 分钟有效期
-  - 支持账户锁定和风险控制
+
+- 所有密码使用 bcrypt 加密
+- OAuth 状态参数使用 AES 加密校验
+- 绑定令牌有 10 分钟有效期
+- 支持账户锁定和风险控制
 
 ## 项目结构
 
 ```
 VoiceHub/
+├── .github/                   # GitHub 配置目录
+│   └── workflows/             # GitHub Actions 工作流
+│       ├── build-fpk.yml      # FnOS FPK 安装包构建
+│       ├── docker-build.yml   # Docker 镜像构建
+│       ├── docker-postgres.yml # PostgreSQL Docker 镜像构建
+│       ├── nix.yml            # Nix 构建校验
+│       └── update-nix-pnpm-hash.yml # 自动同步 pnpmDeps 哈希
 ├── app/                       # Nuxt 4 应用主目录
 │   ├── app.vue                # 应用入口文件
 │   ├── assets/                # 静态资源目录
@@ -522,6 +731,7 @@ VoiceHub/
 │   │       ├── components.css      # 组件样式
 │   │       ├── lyric-player.module.css  # 歌词播放器样式
 │   │       ├── main.css           # 主样式文件
+│   │       ├── markdown.css       # Markdown样式
 │   │       ├── mobile-admin.css   # 移动端管理样式
 │   │       ├── print-fix.css      # 打印样式修复
 │   │       ├── sf-pro-icons.css   # SF Pro图标字体
@@ -653,6 +863,7 @@ VoiceHub/
 │   │   ├── useMusicWebSocket.ts  # 音乐WebSocket hooks
 │   │   ├── useNotifications.ts # 通知功能hooks
 │   │   ├── usePermissions.ts   # 权限管理hooks
+│   │   ├── usePasswordStrength.ts # 密码强度检测hooks
 │   │   ├── useProgress.ts      # 进度管理hooks
 │   │   ├── useProgressEvents.ts # 进度事件hooks
 │   │   ├── useRequestDedup.ts  # 请求去重hooks
@@ -667,6 +878,8 @@ VoiceHub/
 │   │   ├── db.ts               # 数据库连接
 │   │   ├── schema.ts           # 数据库模型
 │   │   └── migrations/         # 数据库迁移文件
+│   │       ├── *.sql           # Drizzle 迁移脚本
+│   │       └── meta/           # Drizzle 迁移快照
 │   ├── layouts/               # 布局组件
 │   │   └── default.vue         # 默认布局模板
 │   ├── middleware/            # 中间件
@@ -702,6 +915,7 @@ VoiceHub/
 │       ├── lyric/             # 歌词处理工具
 │       │   ├── exclude.ts     # 歌词排除规则
 │       │   ├── lyricFormat.ts # 歌词格式化
+│       │   ├── lyricMatchQuality.ts # 歌词版本一致性检测
 │       │   ├── lyricParser.ts # 歌词解析器
 │       │   ├── lyricStripper.ts # 歌词清理
 │       │   ├── parseLrc.ts    # LRC格式解析
@@ -709,6 +923,7 @@ VoiceHub/
 │       ├── bilibiliSource.ts  # 哔哩哔哩音源
 │       ├── debounce.ts       # 防抖工具
 │       ├── lyricAdapter.ts    # 歌词适配器
+│       ├── markdown.js        # Markdown工具
 │       ├── musicSources.ts    # 音乐源配置
 │       ├── musicUrl.ts        # 音乐URL处理
 │       ├── sentryUpstreamMusicErrors.ts # Sentry 上游音源错误过滤
@@ -716,6 +931,7 @@ VoiceHub/
 │       ├── oauth-register.ts  # OAuth注册工具
 │       ├── oauth.ts           # OAuth工具
 │       ├── timeUtils.ts       # 时间工具
+│       ├── webauthn.js        # WebAuthn浏览器兼容工具
 │       └── url.ts             # URL处理工具
 ├── server/                # 服务端代码
 │   ├── api/                # API路由
@@ -747,6 +963,7 @@ VoiceHub/
 │   │   │   ├── card-codes/          # 点歌券管理API
 │   │   │   │   ├── [id].put.ts      # 更新单张点歌券
 │   │   │   │   ├── create.post.ts   # 创建点歌券
+│   │   │   │   ├── delete.post.ts   # 删除点歌券
 │   │   │   │   ├── export.get.ts    # 导出点歌券
 │   │   │   │   ├── index.get.ts     # 获取点歌券列表
 │   │   │   │   ├── redeem-logs.get.ts # 获取点歌券日志
@@ -901,8 +1118,15 @@ VoiceHub/
 │   │   │   ├── settings.post.ts     # 更新通知设置
 │   │   │   └── settings.ts          # 获取通知设置
 │   │   ├── open/           # 开放API（无需认证）
+│   │   │   ├── card-codes/          # 点歌券开放API
+│   │   │   │   └── delete.post.ts   # 删除点歌券（兼容不支持 DELETE body 的代理）
+│   │   │   ├── card-codes.delete.ts # 删除点歌券
+│   │   │   ├── card-codes.get.ts    # 获取点歌券列表
+│   │   │   ├── card-codes.patch.ts  # 更新点歌券
+│   │   │   ├── card-codes.post.ts   # 创建点歌券
 │   │   │   ├── songs/               # 歌曲相关开放API
-│   │   │   │   └── mark-played.post.ts # 标记歌曲已播放（供外部调用）
+│   │   │   │   ├── mark-played.post.ts # 标记歌曲已播放（供外部调用）
+│   │   │   │   └── request.post.ts  # 使用个人集成令牌投稿歌曲
 │   │   │   ├── schedules.get.ts     # 获取公开排期
 │   │   │   └── songs.get.ts         # 获取公开歌曲列表
 │   │   ├── play-times/     # 播放时间API
@@ -947,6 +1171,11 @@ VoiceHub/
 │   │   │   │   ├── disable.post.ts  # 关闭双重认证
 │   │   │   │   ├── enable.post.ts   # 开启双重认证
 │   │   │   │   └── generate.post.ts # 生成双重认证密钥
+│   │   │   ├── api-keys/          # 个人集成令牌API
+│   │   │   │   ├── [id].delete.ts # 删除个人集成令牌
+│   │   │   │   ├── [id]/logs.get.ts # 获取个人集成令牌调用日志
+│   │   │   │   ├── index.get.ts   # 获取个人集成令牌列表
+│   │   │   │   └── index.post.ts  # 创建个人集成令牌
 │   │   │   ├── email/               # 用户邮箱管理
 │   │   │   │   ├── bind.post.ts     # 绑定邮箱
 │   │   │   │   ├── resend-verification.post.ts # 重发验证邮件
@@ -961,56 +1190,74 @@ VoiceHub/
 │   │       │   └── meow.post.ts     # MeoW账号操作
 │   │       ├── search.get.ts        # 搜索用户
 │   │       └── social-accounts.get.ts # 获取社交账号
+│   ├── card-codes/         # 点歌券相关
+│   │   └── statuses.ts     # 点歌券状态枚举定义
 │   ├── config/             # 服务端配置
 │   │   └── constants.ts    # 风控阈值与时间窗口常量
 │   ├── error.ts            # 全局错误处理
 │   ├── middleware/         # 服务端中间件
+│   │   ├── 00.request-id.ts # 请求ID注入中间件
 │   │   ├── api-auth.ts     # API认证中间件
 │   │   ├── api-cors.ts     # API跨域中间件
 │   │   └── auth.ts         # 认证中间件
 │   ├── plugins/            # 服务端插件
-│   │   └── error-handler.ts # 错误处理插件
+│   │   ├── 00.sentry.ts    # Sentry错误追踪插件
+│   │   ├── 01.pre-warm-ssr.ts # SSR预热插件
+│   │   ├── error-handler.ts # 错误处理插件
+│   │   └── time-sync.ts    # 服务器时间同步插件
 │   ├── services/           # 业务服务层
 │   │   ├── apiLogService.ts # API日志服务
+│   │   ├── cardCodeDeleteService.ts # 点歌券删除服务
 │   │   ├── cardCodeLifecycleService.ts # 点歌券生命周期服务
 │   │   ├── cacheService.ts # 缓存服务（Redis缓存管理）
 │   │   ├── meowNotificationService.ts # MeoW通知服务
 │   │   ├── notificationService.ts # 通知服务
+│   │   ├── oauthConfigService.ts # OAuth提供商配置与状态服务
 │   │   ├── securityService.ts # 安全服务
+│   │   ├── songRequestService.ts # 点歌投稿服务
 │   │   ├── smtpService.ts  # SMTP邮件服务
 │   │   └── userService.ts # 用户服务
 │   ├── utils/              # 服务端工具函数
+│   │   ├── apiKeyUtils.ts  # API Key生成、哈希与校验
 │   │   ├── auth.ts         # 认证工具函数
 │   │   ├── bilibiliWbi.ts  # Bilibili WBI签名工具
 │   │   ├── cache-helpers.ts # 缓存辅助工具
+│   │   ├── captcha.ts      # 图形验证码生成工具
+│   │   ├── captchaStore.ts # 验证码存储工具
+│   │   ├── card-code-delete-handler.ts # 点歌券删除开放API处理器
 │   │   ├── database-health.ts # 数据库健康检查
 │   │   ├── database-manager.ts # 数据库管理工具
 │   │   ├── geo.ts          # 地理位置工具
+│   │   ├── instance-id.ts  # 实例ID管理工具
 │   │   ├── ip-utils.ts     # IP地址工具
 │   │   ├── jwt-enhanced.ts # JWT工具
 │   │   ├── log-manager.ts  # 日志管理工具
 │   │   ├── native_common.ts # 原生API通用工具
 │   │   ├── native_tx.ts    # 腾讯音乐原生API
 │   │   ├── native_wy.ts    # 网易云音乐原生API
-│   │   ├── qq_music_sdk.ts # QQ音乐SDK调用封装
+│   │   ├── oauth-providers.ts # OAuth提供商类型与纯函数工具
 │   │   ├── oauth-strategies.ts # OAuth策略配置
 │   │   ├── oauth-token.ts  # OAuth令牌工具
 │   │   ├── oauth.ts        # OAuth通用工具
 │   │   ├── open-api-cache.ts # 开放API缓存
 │   │   ├── permissions.js  # 权限系统配置
+│   │   ├── qq_music_sdk.ts # QQ音乐SDK调用封装
+│   │   ├── rateLimiter.ts  # 请求速率限制工具
 │   │   ├── redis.ts        # Redis连接和操作工具
 │   │   ├── request-utils.ts # 请求处理通用工具
+│   │   ├── serverTime.ts   # 服务器时间管理工具
 │   │   ├── siteUtils.ts    # 站点工具函数
 │   │   ├── studentMask.ts  # 学生隐私工具
 │   │   ├── submissionLimit.ts # 投稿限额工具
 │   │   ├── system-settings-defaults.ts # 系统设置默认值
+│   │   ├── telemetry.ts    # 遥测与错误追踪工具
 │   │   ├── twoFactorStore.ts # 双重认证存储工具
 │   │   ├── user.ts         # 用户相关工具函数
 │   │   ├── webauthn-config.ts # WebAuthn配置工具
 │   │   └── webauthn-token.ts # WebAuthn令牌工具
-│   ├── workers/            # 服务端工作进程
-│   │   └── audioEncoderWorker.js # 音频编码工作进程
 │   └── tsconfig.json       # 服务端TypeScript配置
+├── scripts/               # 构建、部署与数据库维护脚本
+│   └── build.js           # 输出环境变量解析结果并执行 Nuxt 构建
 ├── types/                 # TypeScript类型定义
 │   ├── global.d.ts         # 全局类型定义
 │   └── index.ts            # 通用类型定义
@@ -1021,6 +1268,8 @@ VoiceHub/
 ├── docker-compose.yml     # Docker编排文件
 ├── Dockerfile             # Docker构建文件
 ├── drizzle.config.ts      # Drizzle配置文件
+├── flake.lock             # Nix flake锁定文件
+├── flake.nix              # Nix构建与NixOS模块配置
 ├── LICENSE                # 开源许可证文件
 ├── netlify.toml           # Netlify部署配置
 ├── nuxt.config.ts         # Nuxt 4主配置文件
@@ -1375,6 +1624,7 @@ const strategies: Record<string, OAuthStrategy> = {
 项目已内置对 [Casdoor](https://casdoor.org/) 的支持。Casdoor 是一个开源的 UI 优先的身份认证管理系统 (IAM)，支持 OAuth 2.0、OIDC 等多种协议。
 
 要启用 Casdoor 登录，只需进入管理员后台的 **站点配置 -> OAuth 第三方登录配置**，开启 Casdoor 选项，并填入以下信息：
+
 - **Casdoor 服务器 URL** (如 `https://your-casdoor-domain.com`)
 - **Casdoor Client ID**
 - **Casdoor Client Secret**
@@ -1689,9 +1939,7 @@ export const MUSIC_SOURCE_CONFIG: MusicSourceConfig = {
   enableFailover: true, // 启用故障转移
   timeout: 10000, // 默认超时时间
   retryAttempts: 2, // 重试次数
-  sources: [
-    /* 音源列表 */
-  ]
+  sources: [/* 音源列表 */]
 }
 ```
 
@@ -1792,15 +2040,18 @@ const transformMusicApiResponse = (response: any): any[] => {
 VoiceHub 是一款开源的校园广播站点歌管理系统。本软件遵循 GPLv3 协议开源，但请注意在使用过程中涉及的第三方服务和内容可能受相关法律法规限制。
 
 ### 关于音乐内容与版权
+
 - 本系统**不存储任何音乐文件**，不拥有任何音乐的版权；
 - 所有音乐资源、播放及下载链接均来自**第三方音乐平台 API**；
 - 音乐内容的版权、著作权归相应版权方及音乐平台所有。
 
 ### 关于功能说明
+
 - 本系统提供**音乐搜索、播放链接获取、音乐下载辅助**功能；
 - 系统仅做接口调用与工具呈现，不生产、不篡改音乐内容。
 
 ### 法律与责任声明
+
 - 用户使用本系统进行播放、下载等行为，**须自行遵守所在地区版权法律法规及第三方平台服务协议**；
 - 用户需自行确保对本系统的使用不侵犯第三方权益（如音乐版权方、API提供方等），特别是涉及商业用途时，请务必确认是否获得相应授权；
 - 因用户使用不当、侵权用途所产生的一切法律责任，由**用户自行承担**，项目开发者不承担连带责任；
@@ -1813,10 +2064,13 @@ VoiceHub 是一款开源的校园广播站点歌管理系统。本软件遵循 G
 VoiceHub 内置可选的错误遥测功能，用于帮助开发者快速定位和修复系统问题。
 
 ### 遥测默认状态
+
 - 遥测功能**默认开启**，但**可在管理员后台随时关闭**（站点配置 → 启用错误追踪与遥测）
 
 ### 收集的数据范围
+
 系统通过 Sentry 仅收集以下**技术性信息**（不涉及任何个人隐私）：
+
 - **错误堆栈与消息**：前端 Vue 错误、服务端未捕获异常和未处理 Promise 拒绝的技术信息
 - **实例标识符**：系统安装时生成的随机 UUID（仅用于区分不同部署实例，不可用于识别个人）
 - **实例心跳**：系统启动时发送一条 `instance_online` 消息（仅含实例 ID），用于统计活跃部署实例数量，不包含任何业务数据
@@ -1825,12 +2079,14 @@ VoiceHub 内置可选的错误遥测功能，用于帮助开发者快速定位�
 - **前端组件名称**：出错的 Vue 组件名称（仅用于定位前端问题）
 
 ### 安全保障
+
 - 所有 HTTP 4xx 业务错误（如认证失败、权限不足）**自动忽略**，不会上报 Sentry
 - 前端网络离线状态和浏览器扩展产生的错误**自动过滤**
 - 数据通过加密通道传输至 Sentry
 - 遥测开关变更即时生效，无需重启服务
 
 ### 数据接收方
+
 错误数据由 [Sentry](https://sentry.io/) 处理，仅用于错误排查与系统稳定性改进。
 
 ## 致谢
@@ -1859,6 +2115,7 @@ Thanks goes to these wonderful people:
 - [Sound-of-experiment - 实验之声广播站点歌系统](https://github.com/ljk743121/Sound-of-experiment) (哔哩哔哩音源搜索功能参考)
 - [Bilibili-audio-extraction](https://github.com/rio4raki/Bilibili-audio-extraction) (哔哩哔哩音频流获取参考)
 - [SPlayer](https://github.com/imsyy/SPlayer)
+- [SPlayer-Next](https://github.com/SPlayer-Dev/SPlayer-Next)
 - [Apple Music-like Lyrics](https://github.com/amll-dev/applemusic-like-lyrics)
 - [official-website - Sparkinit](https://github.com/Sparkinit/official-website)
 - [MusicAPI-rrvenn](https://music.rrvenn.cn)

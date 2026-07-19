@@ -14,13 +14,23 @@
             <AuthProvidersGitHubIcon v-if="provider.key === 'github'" class="w-5 h-5" />
             <AuthProvidersCasdoorIcon v-else-if="provider.key === 'casdoor'" class="w-5 h-5" />
             <AuthProvidersGoogleIcon v-else-if="provider.key === 'google'" class="w-5 h-5" />
+            <Icon
+              v-else-if="provider.routeProvider === 'aggregate'"
+              :name="getAggregateOAuthLoginTypeIcon(provider.loginType)"
+              :size="23"
+              :class="aggregateIconClass(provider.loginType)"
+            />
             <Shield v-else :size="20" />
           </div>
           <div class="flex flex-col">
-            <span class="text-sm font-bold text-zinc-200">{{ provider.name || getProviderDisplayName(provider.key) }}</span>
-            <span v-if="getIdentityByProvider(provider.key)" class="text-[11px] text-blue-500 font-medium mt-0.5">{{
-              getIdentityByProvider(provider.key).providerUsername
+            <span class="text-sm font-bold text-zinc-200">{{
+              provider.name || getProviderDisplayName(provider.key)
             }}</span>
+            <span
+              v-if="getIdentityByProvider(provider.key)"
+              class="text-[11px] text-blue-500 font-medium mt-0.5"
+              >{{ getIdentityByProvider(provider.key).providerUsername }}</span
+            >
             <span v-else class="text-[11px] text-zinc-500 mt-0.5">未绑定</span>
           </div>
         </div>
@@ -37,19 +47,19 @@
           v-else
           class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-black rounded-xl shadow-lg shadow-blue-900/20 transition-all active:scale-95 disabled:opacity-50"
           :disabled="actionLoading"
-          @click="handleBind(provider.key)"
+          @click="handleBind(provider)"
         >
           {{ actionLoading ? '跳转中...' : '立即绑定' }}
         </button>
       </div>
 
       <!-- WebAuthn / Passkey -->
-      <div 
+      <div
         v-if="isWebAuthnSupported || webauthnIdentities.length > 0 || !isSecureContext"
         :class="[
-          itemClass, 
+          itemClass,
           webauthnIdentities.length > 0 ? 'cursor-pointer hover:bg-zinc-900/70' : ''
-        ]" 
+        ]"
         @click="toggleWebAuthnList"
       >
         <div class="flex items-center gap-4">
@@ -60,10 +70,10 @@
           </div>
           <div class="flex flex-col">
             <div class="flex items-center gap-2">
-              <span class="text-sm font-bold text-zinc-200">Windows Hello / Passkey</span>
-              <ChevronDown 
+              <span class="text-sm font-bold text-zinc-200">Passkey</span>
+              <ChevronDown
                 v-if="webauthnIdentities.length > 0"
-                :size="14" 
+                :size="14"
                 class="text-zinc-500 transition-transform duration-300"
                 :class="{ 'rotate-180': isWebAuthnExpanded }"
               />
@@ -82,7 +92,10 @@
         >
           {{ actionLoading ? '处理中...' : '添加设备' }}
         </button>
-        <div v-else-if="!isSecureContext" class="flex items-center gap-1 text-amber-500 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
+        <div
+          v-else-if="!isSecureContext"
+          class="flex items-center gap-1 text-amber-500 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20"
+        >
           <AlertTriangle :size="12" />
           <span class="text-[10px] font-medium">需要 HTTPS 环境</span>
         </div>
@@ -90,7 +103,10 @@
 
       <!-- WebAuthn 设备列表 -->
       <Transition name="expand">
-        <div v-if="isWebAuthnExpanded && webauthnIdentities.length > 0" class="pl-16 -mt-2 overflow-hidden">
+        <div
+          v-if="isWebAuthnExpanded && webauthnIdentities.length > 0"
+          class="pl-16 -mt-2 overflow-hidden"
+        >
           <div class="space-y-2 pt-2">
             <div
               v-for="cred in webauthnIdentities"
@@ -112,7 +128,7 @@
                 </div>
                 <div v-else class="flex items-center gap-2 mb-0.5">
                   <span class="text-xs font-medium text-zinc-300">{{ cred.providerUsername }}</span>
-                  <button 
+                  <button
                     class="text-zinc-500 hover:text-zinc-300 opacity-0 group-hover/item:opacity-100 transition-opacity p-0.5"
                     @click.stop="startEditing(cred)"
                     title="重命名"
@@ -120,17 +136,20 @@
                     <Pencil :size="12" />
                   </button>
                 </div>
-                
+
                 <span class="text-[10px] text-zinc-600"
-                  >添加于 {{ new Date(cred.createdAt).toLocaleString('zh-CN', { 
-                    year: 'numeric', 
-                    month: '2-digit', 
-                    day: '2-digit', 
-                    hour: '2-digit', 
-                    minute: '2-digit', 
-                    second: '2-digit',
-                    hour12: false
-                  }) }}</span
+                  >添加于
+                  {{
+                    new Date(cred.createdAt).toLocaleString('zh-CN', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                      hour12: false
+                    })
+                  }}</span
                 >
               </div>
 
@@ -180,13 +199,28 @@
   </div>
 </template>
 
-<script setup lang="ts">
+<script setup>
 import { ref, onMounted, computed, nextTick } from 'vue'
-import { Loader2, Shield, Fingerprint, ChevronDown, Pencil, Check, X, AlertTriangle } from 'lucide-vue-next'
+import {
+  Loader2,
+  Shield,
+  Fingerprint,
+  ChevronDown,
+  Pencil,
+  Check,
+  X,
+  AlertTriangle
+} from '@lucide/vue'
 import ConfirmDialog from '~/components/UI/ConfirmDialog.vue'
+import Icon from '~/components/UI/Icon.vue'
 import { useToast } from '~/composables/useToast'
-import { getProviderDisplayName } from '~/utils/oauth'
-import { startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser'
+import { getAggregateOAuthLoginTypeIcon, getProviderDisplayName } from '~/utils/oauth'
+import { browserSupportsWebAuthn } from '@simplewebauthn/browser'
+import {
+  getWebAuthnErrorMessage,
+  signalUnknownWebAuthnCredential,
+  startWebAuthnRegistration
+} from '~/utils/webauthn'
 
 const { oauthProviders, refreshSiteConfig } = useSiteConfig()
 const { showToast } = useToast()
@@ -197,25 +231,18 @@ const isWebAuthnSupported = ref(false)
 const isSecureContext = ref(true)
 
 // 编辑相关
-const editingId = ref<string | null>(null)
+const editingId = ref(null)
 const editingName = ref('')
 const isRenaming = ref(false)
-const editInput = ref<HTMLInputElement | null>(null)
+const editInput = ref(null)
 
-interface WebAuthnCredential {
-  id: string
-  providerUsername: string
-  createdAt: string
-  [key: string]: any
-}
-
-const startEditing = async (cred: WebAuthnCredential) => {
+const startEditing = async (cred) => {
   editingId.value = cred.id
   editingName.value = cred.providerUsername
   // 聚焦输入框
   await nextTick()
   if (editInput.value) {
-    (editInput.value as HTMLInputElement)?.focus()
+    editInput.value?.focus()
   }
 }
 
@@ -224,17 +251,17 @@ const cancelEditing = () => {
   editingName.value = ''
 }
 
-const saveEditing = async (id: string) => {
+const saveEditing = async (id) => {
   if (!editingName.value.trim()) {
     showToast('设备名称不能为空', 'error')
     return
   }
-  
+
   if (editingName.value.trim().length > 50) {
     showToast('设备名称过长 (最大50个字符)', 'error')
     return
   }
-  
+
   isRenaming.value = true
   try {
     await $fetch('/api/auth/webauthn/rename', {
@@ -244,7 +271,7 @@ const saveEditing = async (id: string) => {
     showToast('设备名称修改成功', 'success')
     await fetchIdentities()
     cancelEditing()
-  } catch (e: any) {
+  } catch (e) {
     showToast(e.data?.message || '修改失败', 'error')
   } finally {
     isRenaming.value = false
@@ -273,15 +300,25 @@ const confirmDialog = ref({
 const itemClass =
   'flex items-center justify-between p-4 bg-zinc-950/30 border border-zinc-900 rounded-2xl hover:bg-zinc-900/50 transition-all group'
 
+const aggregateIconClass = (loginType) => {
+  const classes = {
+    qq: 'text-[#12b7f5]',
+    wx: 'text-[#07c160]',
+    alipay: 'text-[#1677ff]',
+    douyin: 'text-[#25f4ee]'
+  }
+  return classes[loginType] || 'text-zinc-100'
+}
+
 const enabledProviders = computed(() => oauthProviders.value || [])
 
-const getProviderName = (provider: string) => {
-  const matched = enabledProviders.value.find((item: any) => item.key === provider)
+const getProviderName = (provider) => {
+  const matched = enabledProviders.value.find((item) => item.key === provider)
   return matched?.name || getProviderDisplayName(provider)
 }
 
-const getIdentityByProvider = (provider: string) =>
-  identities.value.find((item: any) => item.provider === provider)
+const getIdentityByProvider = (provider) =>
+  identities.value.find((item) => item.provider === provider)
 
 const webauthnIdentities = computed(() => identities.value.filter((i) => i.provider === 'webauthn'))
 
@@ -299,7 +336,13 @@ const fetchIdentities = async () => {
 const handleBind = (provider) => {
   actionLoading.value = true
   // 绑定也是通过 OAuth 流程，最终回调时会自动识别已登录状态并执行绑定
-  navigateTo(`/api/auth/${provider}`, { external: true })
+  const routeProvider = provider.routeProvider || provider.key
+  const query = new URLSearchParams()
+  if (provider.loginType) query.set('type', provider.loginType)
+  const queryString = query.toString()
+  navigateTo(`/api/auth/${routeProvider}${queryString ? `?${queryString}` : ''}`, {
+    external: true
+  })
 }
 
 const confirmUnbind = (provider) => {
@@ -321,7 +364,7 @@ const confirmUnbind = (provider) => {
 const confirmUnbindWebAuthn = (cred) => {
   confirmDialog.value = {
     title: '移除 Passkey',
-    message: `确定要移除设备 "${cred.providerUsername}" 吗？移除后将无法使用该设备登录。`,
+    message: `确定要移除设备 "${cred.providerUsername}" 吗？VoiceHub 会尝试通知当前设备同步删除；若系统不支持，仍需在密码保险箱中手动删除。`,
     type: 'danger',
     loading: false,
     onConfirm: () => handleUnbind('webauthn', cred.id),
@@ -336,12 +379,20 @@ const handleUnbind = async (provider, id = null) => {
   confirmDialog.value.loading = true
   actionLoading.value = true
   try {
-    await $fetch('/api/auth/unbind', {
+    const result = await $fetch('/api/auth/unbind', {
       method: 'POST',
       body: { provider, id }
     })
+    const cleanupResults = await Promise.all(
+      (result.passkeyCleanup || []).map(signalUnknownWebAuthnCredential)
+    )
     await fetchIdentities()
-    showToast('解除绑定成功', 'success')
+    const deviceCleanupSucceeded = cleanupResults.length > 0 && cleanupResults.every(Boolean)
+    if (provider === 'webauthn' && !deviceCleanupSucceeded) {
+      showToast('已从 VoiceHub 移除，请同时在设备密码保险箱中删除对应 Passkey', 'warning', 6000)
+    } else {
+      showToast('解除绑定成功', 'success')
+    }
     showConfirmDialog.value = false
   } catch (e) {
     showToast(e.data?.message || '解绑失败', 'error')
@@ -353,40 +404,28 @@ const handleUnbind = async (provider, id = null) => {
 
 const handleWebAuthnRegister = async () => {
   if (!isWebAuthnSupported.value) {
-    showToast('您的浏览器不支持 Windows Hello / Passkey', 'error')
+    showToast('您的浏览器不支持 Passkey', 'error')
     return
   }
 
   actionLoading.value = true
   try {
     const options = await $fetch('/api/auth/webauthn/register/options')
-    
-    let attResp
-    try {
-      attResp = await startRegistration(options)
-    } catch (e) {
-      if (e.name === 'NotAllowedError') {
-        throw new Error('用户取消了操作')
-      }
-      throw e
-    }
+    const attResp = await startWebAuthnRegistration(options)
 
     // 提示用户输入设备名称（可选，这里先用默认的）
-    // attResp.label = 'Windows Hello' 
-    
+    // attResp.label = 'Windows Hello'
+
     await $fetch('/api/auth/webauthn/register/verify', {
       method: 'POST',
       body: attResp
     })
-    
+
     showToast('设备添加成功', 'success')
     await fetchIdentities()
   } catch (e) {
     console.error('WebAuthn 注册错误:', e)
-    const apiError = e as { data?: { message?: string }; message?: string }
-    const err = e as Error
-    const message = apiError.data?.message || err.message || '添加设备失败'
-    showToast(message, 'error')
+    showToast(getWebAuthnErrorMessage(e, '添加设备失败'), 'error')
   } finally {
     actionLoading.value = false
   }
@@ -395,7 +434,7 @@ const handleWebAuthnRegister = async () => {
 onMounted(async () => {
   await refreshSiteConfig()
   fetchIdentities()
-  
+
   isSecureContext.value = window.isSecureContext
 
   const isApiSupported = browserSupportsWebAuthn()
@@ -403,7 +442,8 @@ onMounted(async () => {
 
   if (isApiSupported && window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) {
     try {
-      isPlatformAuthenticatorAvailable = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+      isPlatformAuthenticatorAvailable =
+        await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
     } catch (e) {
       console.warn('WebAuthn 平台认证器检查失败:', e)
     }

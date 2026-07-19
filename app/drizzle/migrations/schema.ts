@@ -275,7 +275,7 @@ export const cardCode = pgTable("CardCode", {
 export const cardCodeRedeemLog = pgTable("CardCodeRedeemLog", {
 	id: serial().primaryKey().notNull(),
 	createdAt: timestamp({ mode: 'string' }).defaultNow().notNull(),
-	cardCodeId: integer().notNull(),
+	cardCodeId: integer(),
 	codeSnapshot: text().notNull(),
 	redeemedBy: integer().notNull(),
 	redeemedAt: timestamp({ mode: 'string' }).defaultNow().notNull(),
@@ -286,7 +286,7 @@ export const cardCodeRedeemLog = pgTable("CardCodeRedeemLog", {
 			columns: [table.cardCodeId],
 			foreignColumns: [cardCode.id],
 			name: "CardCodeRedeemLog_cardCodeId_CardCode_id_fk"
-		}).onDelete("restrict"),
+		}).onDelete("set null"),
 	foreignKey({
 			columns: [table.redeemedBy],
 			foreignColumns: [user.id],
@@ -358,6 +358,11 @@ export const systemSettings = pgTable("SystemSettings", {
 	googleOauthEnabled: boolean().default(false).notNull(),
 	googleClientId: text(),
 	googleClientSecret: text(),
+	aggregateOauthEnabled: boolean("aggregateOAuthEnabled").default(false).notNull(),
+	aggregateOauthAppId: text("aggregateOAuthAppId"),
+	aggregateOauthAppKey: text("aggregateOAuthAppKey"),
+	aggregateOauthLoginType: text("aggregateOAuthLoginType").default('qq'),
+	aggregateOauthEndpoint: text("aggregateOAuthEndpoint").default('https://a.idcfx.net/connect.php'),
 	showBeianIcon: boolean().default(false).notNull(),
 	allowOauthRegistration: boolean().default(false).notNull(),
 	captchaEnabled: boolean().default(false).notNull(),
