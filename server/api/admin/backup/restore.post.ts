@@ -13,6 +13,7 @@ import {
   playTimes,
   requestTimes,
   schedules,
+  scheduleSongPool,
   semesters,
   songBlacklists,
   songCollaborators,
@@ -26,9 +27,13 @@ import {
 } from '~/drizzle/schema'
 import { promises as fs } from 'fs'
 import path from 'path'
-import { CacheService } from '../../../services/cacheService'
 import { SmtpService } from '../../../services/smtpService'
 import { and, eq, inArray, isNull, notInArray, or } from 'drizzle-orm'
+import { restoreScheduleSongPoolRecord } from '~~/server/utils/restoreScheduleSongPool'
+import { omitMaskedSystemSettingsSecrets } from '~~/server/api/admin/system-settings/secretMask'
+import { validateThemeConfig } from '~~/server/utils/theme-config'
+import { createApiError } from '~~/server/utils/apiError'
+import { SERVER_ERROR_CODES } from '~~/server/config/constants'
 
 export default defineEventHandler(async (event) => {
   try {
@@ -187,6 +192,7 @@ export default defineEventHandler(async (event) => {
           await db.delete(collaborationLogs)
           await db.delete(songCollaborators)
           await db.delete(songReplayRequests)
+          await db.delete(scheduleSongPool)
           await db.delete(schedules)
           await db.delete(votes)
           await db.delete(songs)
@@ -259,8 +265,8 @@ export default defineEventHandler(async (event) => {
           await db.delete(collaborationLogs)
           await db.delete(songCollaborators)
           await db.delete(songReplayRequests)
+          await db.delete(scheduleSongPool)
           await db.delete(schedules)
-          await db.delete(cardCodeRedeemLogs)
           await db.delete(votes)
           await db.delete(songs)
           await db.delete(cardCodes)
@@ -301,6 +307,7 @@ export default defineEventHandler(async (event) => {
       'songReplayRequests',
       'votes',
       'schedules',
+      'scheduleSongPool',
       'cardCodeRedeemLogs',
       'notificationSettings',
       'notifications',
@@ -339,6 +346,10 @@ export default defineEventHandler(async (event) => {
               try {
                 await db.$transaction(
                   async (tx) => {
+                    const stats = {
+                      created: 0,
+                      warnings: restoreResults.details.warnings
+                    }
                     // 根据表名选择恢复策略
                     switch (tableName) {
                       case 'users':
@@ -726,9 +737,15 @@ export default defineEventHandler(async (event) => {
                         cardCodeData.lockedBy = await mapUserId('lockedBy')
                         cardCodeData.redeemedBy = await mapUserId('redeemedBy')
                         cardCodeData.lockedAt = record.lockedAt ? new Date(record.lockedAt) : null
-                        cardCodeData.redeemedAt = record.redeemedAt ? new Date(record.redeemedAt) : null
-                        cardCodeData.createdAt = record.createdAt ? new Date(record.createdAt) : new Date()
-                        cardCodeData.updatedAt = record.updatedAt ? new Date(record.updatedAt) : new Date()
+                        cardCodeData.redeemedAt = record.redeemedAt
+                          ? new Date(record.redeemedAt)
+                          : null
+                        cardCodeData.createdAt = record.createdAt
+                          ? new Date(record.createdAt)
+                          : new Date()
+                        cardCodeData.updatedAt = record.updatedAt
+                          ? new Date(record.updatedAt)
+                          : new Date()
 
                         let restoredCardCode
                         if (mode === 'merge') {
@@ -747,7 +764,9 @@ export default defineEventHandler(async (event) => {
                                 .returning()
                             )[0]
                           } else {
-                            restoredCardCode = (await tx.insert(cardCodes).values(cardCodeData).returning())[0]
+                            restoredCardCode = (
+                              await tx.insert(cardCodes).values(cardCodeData).returning()
+                            )[0]
                           }
                         } else {
                           const existingCardCodeWithId = await tx
@@ -766,7 +785,10 @@ export default defineEventHandler(async (event) => {
                             )[0]
                           } else {
                             restoredCardCode = (
-                              await tx.insert(cardCodes).values({ ...cardCodeData, id: record.id }).returning()
+                              await tx
+                                .insert(cardCodes)
+                                .values({ ...cardCodeData, id: record.id })
+                                .returning()
                             )[0]
                           }
                         }
@@ -856,6 +878,7 @@ export default defineEventHandler(async (event) => {
                           'cover',
                           'musicPlatform',
                           'musicId',
+                          'durationSeconds',
                           'submissionNote',
                           'submissionNotePublic'
                         ]
@@ -1103,10 +1126,12 @@ export default defineEventHandler(async (event) => {
 
                       case 'systemSettings':
                         // 动态构建系统设置数据，自动跳过不存在的字段
-                        const systemSettingsData = {}
+                        let systemSettingsData = {}
                         const systemSettingsFields = [
                           'enablePlayTimeSelection',
                           'instanceId',
+                          'defaultTheme',
+                          'enabledThemes',
                           'telemetryEnabled',
                           'siteTitle',
                           'siteLogoUrl',
@@ -1122,14 +1147,18 @@ export default defineEventHandler(async (event) => {
                           'monthlySubmissionLimit',
                           'showBlacklistKeywords',
                           'enableRequestTimeLimitation',
-                          'requestTimeLimitation',
                           'forceBlockAllRequests',
+                          'forcePasswordChangeOnFirstLogin',
                           'enableReplayRequests',
                           'enableCollaborativeSubmission',
                           'enableSubmissionRemarks',
                           'enableCardCodeRequests',
                           'requireCardCodeForRequests',
                           'enableCardCodeLimitBypass',
+                          'enableSubmissionRestriction',
+                          'submissionRestrictionScope',
+                          'sameSongRestrictionHours',
+                          'sameArtistRestrictionHours',
                           'hideStudentInfo',
                           'smtpEnabled',
                           'smtpHost',
@@ -1173,7 +1202,14 @@ export default defineEventHandler(async (event) => {
                           'customOAuthEmailField',
                           'customOAuthAvatarField',
                           'captchaEnabled',
-                          'captchaMaxFailures'
+                          'captchaMaxFailures',
+                          'captchaProvider',
+                          'turnstileSiteKey',
+                          'turnstileSecretKey',
+                          'autoBackupEnabled',
+                          'autoBackupConfig',
+                          'enabledPlatforms',
+                          'platformOrder'
                         ]
 
                         // 只添加备份数据中存在的字段
@@ -1182,6 +1218,13 @@ export default defineEventHandler(async (event) => {
                             systemSettingsData[field] = record[field]
                           }
                         })
+                        if (Object.prototype.hasOwnProperty.call(systemSettingsData, 'defaultTheme') || Object.prototype.hasOwnProperty.call(systemSettingsData, 'enabledThemes')) {
+                          if (!Object.prototype.hasOwnProperty.call(systemSettingsData, 'defaultTheme') || !Object.prototype.hasOwnProperty.call(systemSettingsData, 'enabledThemes')) {
+                            throw createApiError(400, SERVER_ERROR_CODES.THEME_INVALID_LIST, '主题配置必须同时包含默认主题和启用主题列表')
+                          }
+                          systemSettingsData.enabledThemes = JSON.stringify(validateThemeConfig(systemSettingsData.defaultTheme, systemSettingsData.enabledThemes))
+                        }
+                        systemSettingsData = omitMaskedSystemSettingsSecrets(systemSettingsData)
 
                         if (mode === 'merge') {
                           // 检查是否存在系统设置记录（通常只有一条记录）
@@ -1287,6 +1330,26 @@ export default defineEventHandler(async (event) => {
                         scheduleData.sequence = record.hasOwnProperty('sequence')
                           ? record.sequence
                           : 1
+
+                        // 重播申请绑定：申请先于排期恢复，校验绑定存在且属于同一首歌，避免悬空绑定
+                        let validScheduleReplayRequestId = null
+                        if (record.replayRequestId) {
+                          const boundReplayRequest = await tx
+                            .select({
+                              id: songReplayRequests.id,
+                              songId: songReplayRequests.songId
+                            })
+                            .from(songReplayRequests)
+                            .where(eq(songReplayRequests.id, record.replayRequestId))
+                            .limit(1)
+                          if (
+                            boundReplayRequest.length > 0 &&
+                            boundReplayRequest[0].songId === validSongId
+                          ) {
+                            validScheduleReplayRequestId = record.replayRequestId
+                          }
+                        }
+                        scheduleData.replayRequestId = validScheduleReplayRequestId
 
                         if (mode === 'merge') {
                           // 检查是否存在相同的排期（按歌曲ID和播放日期）
@@ -1464,7 +1527,16 @@ export default defineEventHandler(async (event) => {
 
                         // 动态构建通知数据，自动跳过不存在的字段
                         const notificationData = { userId: validNotificationUserId }
-                        const notificationDataFields = ['title', 'message', 'type']
+                        const notificationDataFields = [
+                          'batchId',
+                          'source',
+                          'senderName',
+                          'senderUsername',
+                          'title',
+                          'message',
+                          'type',
+                          'userDeleted'
+                        ]
 
                         notificationDataFields.forEach((field) => {
                           if (record.hasOwnProperty(field)) {
@@ -1472,8 +1544,38 @@ export default defineEventHandler(async (event) => {
                           }
                         })
 
+                        // senderId 需要重新映射到目标库的用户 ID；映射未命中时回查同 ID 用户并比对用户名快照，
+                        // 不一致则置空，避免跨库恢复时将发送人归属到错误用户，展示仍靠快照字段
+                        if (Object.prototype.hasOwnProperty.call(record, 'senderId')) {
+                          if (record.senderId) {
+                            const mappedSenderId = userIdMapping.get(record.senderId)
+                            if (mappedSenderId) {
+                              notificationData.senderId = mappedSenderId
+                            } else {
+                              const senderExists = await tx
+                                .select({ id: users.id, username: users.username })
+                                .from(users)
+                                .where(eq(users.id, record.senderId))
+                                .limit(1)
+                              notificationData.senderId =
+                                senderExists.length > 0 &&
+                                senderExists[0].username === record.senderUsername
+                                  ? record.senderId
+                                  : null
+                            }
+                          } else {
+                            notificationData.senderId = null
+                          }
+                        }
+
                         // 布尔字段，提供默认值
                         notificationData.read = record.hasOwnProperty('read') ? record.read : false
+                        notificationData.important = Object.prototype.hasOwnProperty.call(
+                          record,
+                          'important'
+                        )
+                          ? record.important
+                          : false
 
                         // 日期字段
                         notificationData.createdAt = record.createdAt
@@ -1686,9 +1788,27 @@ export default defineEventHandler(async (event) => {
                           if (mappedSongId) validReplaySongId = mappedSongId
                         }
 
+                        // 校验期望播出时段是否存在（可选字段）
+                        let validReplayPlayTimeId = record.preferredPlayTimeId || null
+                        if (validReplayPlayTimeId) {
+                          const replayPlayTimeExists = await tx
+                            .select({ id: playTimes.id })
+                            .from(playTimes)
+                            .where(eq(playTimes.id, validReplayPlayTimeId))
+                            .limit(1)
+                          if (replayPlayTimeExists.length === 0) {
+                            validReplayPlayTimeId = null
+                          }
+                        }
+
+                        // 保留原始状态与申请元数据，避免历史已履行记录恢复为 PENDING 触发部分唯一索引冲突
                         const replayData = {
                           songId: validReplaySongId,
                           userId: validReplayUserId,
+                          status: record.status || 'PENDING',
+                          preferredPlayTimeId: validReplayPlayTimeId,
+                          submissionNote: record.submissionNote ?? null,
+                          submissionNotePublic: record.submissionNotePublic === true,
                           createdAt: record.createdAt ? new Date(record.createdAt) : new Date(),
                           updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date()
                         }
@@ -1753,7 +1873,9 @@ export default defineEventHandler(async (event) => {
                               .where(eq(users.id, record.redeemedBy))
                               .limit(1)
                             if (userExists.length === 0) {
-                              console.warn(`点歌券日志的操作用户ID ${record.redeemedBy} 不存在，跳过此记录`)
+                              console.warn(
+                                `点歌券日志的操作用户ID ${record.redeemedBy} 不存在，跳过此记录`
+                              )
                               return
                             }
                           }
@@ -1808,7 +1930,9 @@ export default defineEventHandler(async (event) => {
                               .set(logData)
                               .where(eq(cardCodeRedeemLogs.id, record.id))
                           } else {
-                            await tx.insert(cardCodeRedeemLogs).values({ ...logData, id: record.id })
+                            await tx
+                              .insert(cardCodeRedeemLogs)
+                              .values({ ...logData, id: record.id })
                           }
                         }
                         break
@@ -1918,6 +2042,11 @@ export default defineEventHandler(async (event) => {
                           }
                         }
                         break
+
+                      case 'scheduleSongPool': {
+                        await restoreScheduleSongPoolRecord(tx, record, songIdMapping, userIdMapping, stats)
+                        break
+                      }
 
                       case 'requestTimes':
                         // requestTimes表没有外键依赖
@@ -2422,17 +2551,6 @@ export default defineEventHandler(async (event) => {
       console.warn(`⚠️ 发生了 ${restoreResults.details.errors.length} 个错误`)
       restoreResults.success = false
       restoreResults.message = '数据恢复完成，但存在错误'
-    }
-
-    // 清除所有缓存
-    try {
-      const cacheService = CacheService.getInstance()
-      await cacheService.clearAllCaches()
-      console.log('数据恢复后缓存已清除')
-    } catch (cacheError) {
-      console.warn('清除缓存失败:', cacheError)
-      restoreResults.details.warnings = restoreResults.details.warnings || []
-      restoreResults.details.warnings.push('清除缓存失败')
     }
 
     try {

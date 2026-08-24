@@ -18,6 +18,49 @@ const firstStringValue = (values: any[]): string | undefined => {
   return undefined
 }
 
+const getAggregateProviderMessage = (value: any): string | undefined => {
+  const message = firstStringValue([value, value?.msg, value?.message, value?.error_description])
+  if (!message) return undefined
+
+  // CDN/WAF 挑战页不是聚合协议的业务错误，避免把整段 HTML 当成供应商消息记录。
+  if (/<html|just a moment|cloudflare|cf-chl-|enable javascript/i.test(message)) {
+    return undefined
+  }
+
+  return message
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(
+      /["']?\b(app(?:id|key)|client_(?:id|secret))\b["']?\s*[:=：]\s*["']?[^\s,;"'&]+["']?/gi,
+      '$1=[已隐藏]'
+    )
+    .trim()
+    .slice(0, 200)
+}
+
+const isAggregateSecurityChallenge = (value: any): boolean => {
+  const message = firstStringValue([value, value?.msg, value?.message, value?.error_description])
+  return !!message && /<html|just a moment|cloudflare|cf-chl-|enable javascript/i.test(message)
+}
+
+const AGGREGATE_REQUEST_HEADERS = {
+  Accept: 'application/json',
+  // 部分聚合站点的 CDN 会将无 User-Agent 的服务端请求送入挑战页。
+  'User-Agent':
+    'Mozilla/5.0 (compatible; VoiceHub OAuth/1.0; +https://github.com/laoshuikaixue/VoiceHub)',
+  'Cache-Control': 'no-cache'
+}
+
+const fetchAggregateEndpoint = async (url: string): Promise<any> => {
+  return $fetch<any>(url, { headers: AGGREGATE_REQUEST_HEADERS })
+}
+
+const getAggregateAuthorizeErrorMessage = (providerMessage?: string): string =>
+  providerMessage ? `聚合登陆授权地址获取失败：${providerMessage}` : '聚合登陆授权地址获取失败'
+
+const isAggregateSuccessCode = (value: unknown): boolean =>
+  value === 0 || (typeof value === 'string' && value.trim() === '0')
+
 const DEFAULT_AGGREGATE_OAUTH_ENDPOINT = 'https://a.idcfx.net/connect.php'
 
 const normalizeAggregateEndpoint = (endpoint?: string): string => {
@@ -305,24 +348,43 @@ const aggregateOAuthStrategy: OAuthStrategy = {
 
     let loginResponse: any
     try {
-      loginResponse = await $fetch<any>(`${endpoint}?${params.toString()}`, {
-        headers: { Accept: 'application/json' }
-      })
+      loginResponse = await fetchAggregateEndpoint(`${endpoint}?${params.toString()}`)
     } catch (e: any) {
+      const responseBody = e?.data || e?.response?._data
+      const providerMessage = getAggregateProviderMessage(responseBody)
       // AppKey 位于协议规定的查询串中，避免记录可能包含完整请求 URL 的 FetchError。
       console.error('聚合登陆授权地址请求失败', {
-        statusCode: e?.response?.status || e?.statusCode || e?.status || 'unknown'
+        statusCode: e?.response?.status || e?.statusCode || e?.status || 'unknown',
+        providerMessage,
+        securityChallenge: isAggregateSecurityChallenge(responseBody)
       })
-      throw createError({ statusCode: 502, message: '聚合登陆授权地址获取失败' })
-    }
-
-    if (loginResponse?.code !== 0 || !loginResponse?.url) {
+      if (isAggregateSecurityChallenge(responseBody)) {
+        throw createError({
+          statusCode: 502,
+          message:
+            '聚合登录供应商的安全防护拦截了服务器请求，请将服务器出口 IP 加白或更换供应商接口地址'
+        })
+      }
       throw createError({
         statusCode: 502,
-        message: '聚合登陆授权地址获取失败',
-        data: {
-          providerMessage: typeof loginResponse?.msg === 'string' ? loginResponse.msg : undefined
-        }
+        message: getAggregateAuthorizeErrorMessage(providerMessage)
+      })
+    }
+
+    if (!isAggregateSuccessCode(loginResponse?.code) || !loginResponse?.url) {
+      if (isAggregateSecurityChallenge(loginResponse)) {
+        throw createError({
+          statusCode: 502,
+          message:
+            '聚合登录供应商的安全防护拦截了服务器请求，请将服务器出口 IP 加白或更换供应商接口地址'
+        })
+      }
+      const providerMessage = getAggregateProviderMessage(loginResponse)
+      // 上游返回的失败原因需落日志，便于管理员排查未开通/配置错误等问题
+      console.error('聚合登陆授权地址获取失败', { providerMessage })
+      throw createError({
+        statusCode: 502,
+        message: getAggregateAuthorizeErrorMessage(providerMessage)
       })
     }
 
@@ -357,19 +419,34 @@ const aggregateOAuthStrategy: OAuthStrategy = {
 
     let tokenResponse: any
     try {
-      tokenResponse = await $fetch<any>(`${endpoint}?${params.toString()}`, {
-        headers: { Accept: 'application/json' }
-      })
+      tokenResponse = await fetchAggregateEndpoint(`${endpoint}?${params.toString()}`)
     } catch (e: any) {
       // AppKey 位于协议规定的查询串中，避免记录或继续抛出完整请求 URL。
+      const responseBody = e?.data || e?.response?._data
+      const providerMessage = getAggregateProviderMessage(responseBody)
       console.error('聚合登陆回调请求失败', {
-        statusCode: e?.response?.status || e?.statusCode || e?.status || 'unknown'
+        statusCode: e?.response?.status || e?.statusCode || e?.status || 'unknown',
+        providerMessage,
+        securityChallenge: isAggregateSecurityChallenge(responseBody)
       })
-      throw new Error('令牌请求失败')
+      if (isAggregateSecurityChallenge(responseBody)) {
+        throw new Error(
+          '聚合登录供应商的安全防护拦截了服务器请求，请将服务器出口 IP 加白或更换供应商接口地址',
+          { cause: e }
+        )
+      }
+      throw new Error(providerMessage ? `令牌请求失败：${providerMessage}` : '令牌请求失败', {
+        cause: e
+      })
     }
 
-    if (tokenResponse?.code !== 0) {
-      throw new Error(tokenResponse?.msg || '授权失败，请重试')
+    if (!isAggregateSuccessCode(tokenResponse?.code)) {
+      if (isAggregateSecurityChallenge(tokenResponse)) {
+        throw new Error(
+          '聚合登录供应商的安全防护拦截了服务器请求，请将服务器出口 IP 加白或更换供应商接口地址'
+        )
+      }
+      throw new Error(getAggregateProviderMessage(tokenResponse) || '授权失败，请重试')
     }
 
     if (!tokenResponse?.social_uid) {

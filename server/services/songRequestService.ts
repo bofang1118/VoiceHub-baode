@@ -3,15 +3,17 @@ import {
   db,
   playTimes,
   requestTimes,
+  schedules,
   semesters,
   cardCodes,
   songCollaborators,
   songs,
-  systemSettings,
   users
 } from '~/drizzle/db'
-import { and, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm'
+import { and, eq, gte, gt, inArray, lt, lte, or, sql } from 'drizzle-orm'
 import { createError } from 'h3'
+import { validateSongDurationOnSubmit } from '~~/server/services/durationValidationService'
+import { createApiError } from '~~/server/utils/apiError'
 import { createCollaborationInvitationNotification } from '~~/server/services/notificationService'
 import {
   isCardCodeLimitBypassActive,
@@ -19,6 +21,10 @@ import {
 } from '~~/server/utils/submissionLimit'
 import { getClientIP } from '~~/server/utils/ip-utils'
 import { getBeijingTimeISOString } from '~/utils/timeUtils'
+import { getSystemSettingsCached } from '~~/server/utils/system-settings-helper'
+import { getServerDate } from '~~/server/utils/serverTime'
+import { SERVER_ERROR_CODES } from '~~/server/config/constants'
+import { normalizeForMatch } from '~~/server/utils/song-name-normalize'
 import { z } from 'zod'
 
 type SongRequestUser = {
@@ -35,10 +41,14 @@ const songRequestBodySchema = z.object({
   bilibiliCid: z.string().trim().max(100, 'Bilibili CID 不能超过100个字符').optional().nullable(),
   bilibiliPage: z.union([z.string(), z.number()]).optional().nullable(),
   playUrl: z.string().trim().max(2000, '播放链接不能超过2000个字符').optional().nullable(),
+  durationSeconds: z.number().int().min(0, '时长不能为负数').max(7200, '时长不能超过2小时').optional().nullable(),
   submissionNote: z.string().trim().max(300, '备注留言不能超过300个字符').optional().nullable(),
   submissionNotePublic: z.boolean().optional(),
-  preferredPlayTimeId: z.number().int().gt(0, '播出时段 ID 无效').optional().nullable(),
-  cardCode: z.string().trim().max(100, '点歌券不能超过100个字符').optional().nullable(),
+  preferredPlayTimeId: z.preprocess(
+    (value) => value === null || value === undefined || value === '' ? null : Number(value),
+    z.number().int().positive('播出时段 ID 无效').nullable()
+  ).optional(),
+  cardCode: z.string().trim().max(100, 'CARD_CODE_TOO_LONG').optional().nullable(),
   collaborators: z.array(z.union([z.string(), z.number()])).max(20, '联合投稿人不能超过20个').optional()
 })
 
@@ -46,6 +56,11 @@ export async function requestSongForUser(event: any, user: SongRequestUser, body
   const parsedBody = songRequestBodySchema.safeParse(body || {})
   if (!parsedBody.success) {
     const issues = parsedBody.error.issues || []
+    const cardCodeIssue = issues.find((issue) => String(issue.message).startsWith('CARD_CODE_'))
+    if (cardCodeIssue) {
+      throw createApiError(400, cardCodeIssue.message, 'Invalid request card')
+    }
+
     throw createError({
       statusCode: 400,
       message: issues.length
@@ -58,26 +73,21 @@ export async function requestSongForUser(event: any, user: SongRequestUser, body
 
   try {
     // 标准化后再比较，避免同一首歌因标点或空格差异绕过重复检查。
-    const normalizeForMatch = (str: string): string => {
-      return str
-        .toLowerCase()
-        .replace(/[\s\-_\(\)\[\]【】（）「」『』《》〈〉""''""''、，。！？：；～·]/g, '')
-        .replace(/[&＆]/g, 'and')
-        .replace(/[feat\.?|ft\.?]/gi, '')
-        .trim()
-    }
-
     const normalizedTitle = normalizeForMatch(requestBody.title)
     const normalizedArtist = normalizeForMatch(requestBody.artist)
 
     const currentSemester = await getCurrentSemesterName()
+
+    const systemSettingsData = await getSystemSettingsCached()
+    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'SONG_ADMIN'].includes(user.role)
 
     const isBilibili =
       requestBody.musicPlatform === 'bilibili' ||
       String(requestBody.musicId || '').startsWith('BV') ||
       String(requestBody.musicId || '').startsWith('av')
 
-    if (isBilibili && requestBody.musicId) {
+    // 普通用户沿用同一学期内同一首歌只能投稿一次的规则；管理员可按需重复投稿。
+    if (isBilibili && requestBody.musicId && !isAdmin) {
       let fullMusicId = String(requestBody.musicId)
       const bvId = fullMusicId.split(':')[0]
 
@@ -105,16 +115,12 @@ export async function requestSongForUser(event: any, user: SongRequestUser, body
         )
 
       if (existingSongs.length > 0) {
-        const isSuperAdmin = user.role === 'SUPER_ADMIN'
-        const hasUnplayedDuplicate = existingSongs.some((s) => !s.played)
-        if (!isSuperAdmin || hasUnplayedDuplicate) {
-          throw createError({
-            statusCode: 400,
-            message: `《${requestBody.title}》已经在列表中，不能重复投稿`
-          })
-        }
+        throw createError({
+          statusCode: 400,
+          message: `《${requestBody.title}》已经在列表中，不能重复投稿`
+        })
       }
-    } else {
+    } else if (!isAdmin) {
       const allSongs = await db
         .select({
           id: songs.id,
@@ -133,20 +139,90 @@ export async function requestSongForUser(event: any, user: SongRequestUser, body
       })
 
       if (matchingSongs.length > 0) {
-        const isSuperAdmin = user.role === 'SUPER_ADMIN'
-        const hasUnplayedDuplicate = matchingSongs.some((s) => !s.played)
-        if (!isSuperAdmin || hasUnplayedDuplicate) {
-          throw createError({
-            statusCode: 400,
-            message: `《${requestBody.title}》已经在列表中，不能重复投稿`
-          })
-        }
+        throw createError({
+          statusCode: 400,
+          message: `《${requestBody.title}》已经在列表中，不能重复投稿`
+        })
       }
     }
 
-    const systemSettingsResult = await db.select().from(systemSettings).limit(1)
-    const systemSettingsData = systemSettingsResult[0]
-    const isAdmin = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN'
+    // 重复投稿限制：同一首歌 / 同一歌手在排期后 N 小时内不可再次投稿
+    if (systemSettingsData?.enableSubmissionRestriction && !isAdmin) {
+      const now = getServerDate()
+      const sameSongHours = systemSettingsData.sameSongRestrictionHours ?? null
+      const sameArtistHours = systemSettingsData.sameArtistRestrictionHours ?? null
+      const scope = systemSettingsData.submissionRestrictionScope ?? 'all'
+
+      if (sameSongHours || sameArtistHours) {
+        const maxHours = Math.max(sameSongHours || 0, sameArtistHours || 0)
+        const cutoff = new Date(now.getTime() - maxHours * 3600000)
+
+        // 按 scope 构建 where 子句（显式短路，避免依赖 and(undefined) 的版本行为）
+        const scopeFilter = scope === 'self' ? eq(songs.requesterId, user.id) : undefined
+        const whereClause = and(
+          eq(schedules.isDraft, false),
+          or(
+            and(lte(schedules.playDate, now), gte(schedules.playDate, cutoff)),
+            and(
+              gt(schedules.playDate, now),
+              or(gte(schedules.publishedAt, cutoff), gte(schedules.createdAt, cutoff))
+            )
+          ),
+          ...(scopeFilter ? [scopeFilter] : [])
+        )
+        const scheduledSongs = await db
+          .select({
+            sPlayDate: schedules.playDate,
+            sCreatedAt: schedules.createdAt,
+            sPublishedAt: schedules.publishedAt,
+            songTitle: songs.title,
+            songArtist: songs.artist,
+            songRequesterId: songs.requesterId
+          })
+          .from(schedules)
+          .innerJoin(songs, eq(schedules.songId, songs.id))
+          .where(whereClause)
+
+        for (const scheduled of scheduledSongs) {
+          const playDate = scheduled.sPlayDate instanceof Date ? scheduled.sPlayDate : new Date(scheduled.sPlayDate)
+          const createdAt = scheduled.sCreatedAt instanceof Date ? scheduled.sCreatedAt : new Date(scheduled.sCreatedAt)
+          const publishedAt = scheduled.sPublishedAt
+            ? (scheduled.sPublishedAt instanceof Date ? scheduled.sPublishedAt : new Date(scheduled.sPublishedAt))
+            : null
+          // 已播放歌曲：窗口从播放时间起算；未播放歌曲：窗口从排期时间起算
+          const windowStart = playDate.getTime() <= now.getTime()
+            ? playDate.getTime()
+            : (publishedAt || createdAt).getTime()
+          const songWindowMs = (windowStart + (sameSongHours || 0) * 3600000) - now.getTime()
+          const artistWindowMs = (windowStart + (sameArtistHours || 0) * 3600000) - now.getTime()
+          const songWindowActive = (sameSongHours || 0) > 0 && songWindowMs > 0
+          const artistWindowActive = (sameArtistHours || 0) > 0 && artistWindowMs > 0
+
+          if (!songWindowActive && !artistWindowActive) continue
+
+          const scheduledTitleNorm = normalizeForMatch(scheduled.songTitle || '')
+          const scheduledArtistNorm = normalizeForMatch(scheduled.songArtist || '')
+
+          if (songWindowActive && scheduledTitleNorm === normalizedTitle && scheduledArtistNorm === normalizedArtist) {
+            throw createApiError(
+              400,
+              SERVER_ERROR_CODES.SONG_RESTRICTION_SAME_SONG,
+              '同一首歌在排期后一段时间内不能重复投稿',
+              { params: [sameSongHours, requestBody.title] }
+            )
+          }
+
+          if (artistWindowActive && scheduledArtistNorm === normalizedArtist) {
+            throw createApiError(
+              400,
+              SERVER_ERROR_CODES.SONG_RESTRICTION_SAME_ARTIST,
+              '同一歌手在排期后一段时间内不能重复投稿',
+              { params: [sameArtistHours, scheduled.songArtist] }
+            )
+          }
+        }
+      }
+    }
 
     if (systemSettingsData?.forceBlockAllRequests && !isAdmin) {
       throw createError({
@@ -218,7 +294,11 @@ export async function requestSongForUser(event: any, user: SongRequestUser, body
     if (systemSettingsData?.requireCardCodeForRequests && !isAdmin) {
       const providedCardCode = requestBody.cardCode ? requestBody.cardCode.trim().toUpperCase() : ''
       if (!providedCardCode) {
-        throw createError({ statusCode: 403, message: '本站点已启用仅点歌券投稿，请提供有效点歌券' })
+        throw createApiError(
+          403,
+          'CARD_CODE_REQUIRED_FOR_SITE',
+          'This site requires a valid request card to submit songs'
+        )
       }
     }
 
@@ -227,7 +307,7 @@ export async function requestSongForUser(event: any, user: SongRequestUser, body
     )
     const excludeCardCodeRequestsFromLimit = isCardCodeLimitBypassActive(systemSettingsData)
     if (requestBody.cardCode && requestBody.cardCode.trim() && !isCardCodeEnabled && !isAdmin) {
-      throw createError({ statusCode: 400, message: '点歌券投稿功能未启用' })
+      throw createApiError(400, 'CARD_CODE_DISABLED', 'Request card submissions are not enabled')
     }
 
     let preferredPlayTime = null
@@ -275,7 +355,11 @@ export async function requestSongForUser(event: any, user: SongRequestUser, body
 
         const found = codeRows[0]
         if (!found || found.status !== 'AVAILABLE') {
-          throw createError({ statusCode: 400, message: '点歌券无效或已被使用' })
+          throw createApiError(
+            400,
+            'CARD_CODE_INVALID_OR_USED',
+            'Request card is invalid or already used'
+          )
         }
 
         const lockResult = await tx
@@ -285,7 +369,11 @@ export async function requestSongForUser(event: any, user: SongRequestUser, body
           .returning()
 
         if (lockResult.length === 0) {
-          throw createError({ statusCode: 400, message: '点歌券已被锁定或不可用' })
+          throw createApiError(
+            400,
+            'CARD_CODE_LOCKED_OR_UNAVAILABLE',
+            'Request card is locked or unavailable'
+          )
         }
 
         providedCardCodeId = found.id
@@ -382,6 +470,7 @@ export async function requestSongForUser(event: any, user: SongRequestUser, body
           musicId: finalMusicId,
           cardCodeId: providedCardCodeId || null,
           playUrl: requestBody.playUrl || null,
+          durationSeconds: requestBody.durationSeconds || null,
           submissionNote,
           submissionNotePublic,
           hitRequestId: hitRequestTime?.id || null
@@ -460,6 +549,28 @@ export async function requestSongForUser(event: any, user: SongRequestUser, body
 
       return newSong
     })
+
+    // 投后立即校验歌曲时长（不阻塞请求响应）
+    const submitDuration = song.durationSeconds
+    const submitPlatform = song.musicPlatform
+    const submitMusicId = song.musicId
+    if (submitDuration && submitPlatform && submitMusicId) {
+      const durationValidationTask = (async () => {
+        try {
+          const result = await validateSongDurationOnSubmit(song.id, submitPlatform, submitMusicId, submitDuration)
+          if (result === 'clear') {
+            await db.update(songs).set({ durationSeconds: null }).where(eq(songs.id, song.id))
+          }
+        } catch (err) {
+          console.error(`[投稿校验] 后台校验 #${song.id} 异常:`, err)
+        }
+      })()
+      if (typeof event.waitUntil === 'function') {
+        event.waitUntil(durationValidationTask)
+      } else {
+        durationValidationTask.catch((err) => console.error(`[投稿校验] 后台任务 #${song.id} 异常:`, err))
+      }
+    }
 
     for (const notification of notificationsToSend) {
       try {

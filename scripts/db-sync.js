@@ -180,11 +180,21 @@ async function checkSchemaConsistency(sql) {
     'api_keys',
     'api_key_permissions',
     'api_logs',
+    'BackupHistory',
     'CardCode',
-    'CardCodeRedeemLog'
+    'CardCodeRedeemLog',
+    'PasswordAuditLog',
+    'PasswordRateLimit'
   ]
   const requiredColumns = {
-    User: ['status', 'statusChangedAt', 'statusChangedBy', 'email', 'emailVerified'],
+    User: [
+      'status',
+      'statusChangedAt',
+      'statusChangedBy',
+      'email',
+      'emailVerified',
+      'tokenVersion'
+    ],
     Song: ['playUrl', 'submissionNote', 'submissionNotePublic', 'hitRequestId', 'cardCodeId'],
     Schedule: ['isDraft', 'publishedAt'],
     SystemSettings: [
@@ -209,6 +219,7 @@ async function checkSchemaConsistency(sql) {
       'captchaProvider',
       'turnstileSiteKey',
       'turnstileSecretKey',
+      'forcePasswordChangeOnFirstLogin',
       'allowOAuthRegistration',
       'oauthRedirectUri',
       'oauthStateSecret',
@@ -243,8 +254,21 @@ async function checkSchemaConsistency(sql) {
       'customOAuthEmailField',
       'customOAuthAvatarField',
       'captchaEnabled',
-      'captchaMaxFailures'
-    ]
+      'captchaMaxFailures',
+      'autoBackupEnabled',
+      'autoBackupConfig'
+    ],
+    PasswordAuditLog: [
+      'userId',
+      'actorId',
+      'action',
+      'success',
+      'ipAddress',
+      'userAgent',
+      'failureReason',
+      'createdAt'
+    ],
+    PasswordRateLimit: ['key', 'count', 'resetAt']
   }
 
   const missing = []

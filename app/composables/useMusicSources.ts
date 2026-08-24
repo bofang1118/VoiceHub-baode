@@ -19,11 +19,49 @@ import {
 import { getBilibiliTrackUrl, searchBilibili, parseBilibiliId } from '~/utils/bilibiliSource'
 import { evaluateLyricDataMatch } from '~/utils/lyric/lyricMatchQuality'
 import { useLyricSettings } from './useLyricSettings'
+import { usePlatformConfig } from './usePlatformConfig'
+import { useServerErrors } from './useLocaleText'
+import { getPlatformDisplayName } from '~/utils/platforms'
 
 // 歌词请求缓存，避免同一首歌重复请求
 const lyricCache = new Map<string, Promise<any>>()
 const lyricProgressSubscribers = new Map<string, Set<LyricProgressCallback>>()
 const LYRIC_CACHE_TTL = 60 * 1000
+
+// 服务器位置检测（模块级单例，避免多次实例化导致重复请求）
+const globalIsServerInChina = ref<boolean | null>(null)
+let locationCheckPromise: Promise<void> | null = null
+// 检测失败后的冷却时间（5 分钟），避免瞬时失败导致长期锁死
+const LOCATION_CHECK_RETRY_TTL = 5 * 60 * 1000
+let locationCheckFailAt = 0
+
+const checkServerLocationGlobal = async () => {
+  if (globalIsServerInChina.value !== null) return
+  // 检测失败后冷却期内不再重试
+  if (locationCheckFailAt && Date.now() < locationCheckFailAt) return
+  // 并发调用时合并为一次请求
+  if (locationCheckPromise) return locationCheckPromise
+
+  locationCheckPromise = (async () => {
+    try {
+      const data = await $fetch('/api/system/location')
+      if (data && data.success) {
+        globalIsServerInChina.value = data.data.isInChina
+        locationCheckFailAt = 0
+        console.log(
+          `[useMusicSources] 服务器位置检测: ${globalIsServerInChina.value ? '中国' : '海外'}`
+        )
+      }
+    } catch (e) {
+      // 失败时保持未知状态（null），进入冷却期，避免把一次瞬时失败永久判定为海外
+      locationCheckFailAt = Date.now() + LOCATION_CHECK_RETRY_TTL
+      console.warn('[useMusicSources] 服务器位置检测失败，稍后重试:', e)
+    } finally {
+      locationCheckPromise = null
+    }
+  })()
+  return locationCheckPromise
+}
 
 type LyricProgressStage = 'official' | 'qm' | 'amll' | 'upgrade' | 'meting'
 
@@ -318,43 +356,21 @@ export const useMusicSources = () => {
   // 音源状态
   const sourceStatus = ref<Record<string, SourceStatus>>({})
 
-  /**
-   * 使用 Meting API 获取歌曲信息
-   * @param id 歌曲ID
-   * @param source Meting API 音源
-   * @returns Promise<{success: boolean, data?: any, error?: string}>
-   */
+  // 平台启用配置（usePlatformConfig 内部为模块级缓存，各实例共享同一份引用）
+  const { enabledPlatforms: globalEnabledPlatforms } = usePlatformConfig()
+
   const getMetingSongInfo = async (
     id: string | number,
     source: MusicSource
-  ): Promise<{
-    success: boolean
-    data?: any
-    error?: string
-  }> => {
+  ): Promise<{ success: boolean; data?: any; error?: string }> => {
     try {
-      const metingUrl = `${source.baseUrl}/?server=netease&type=song&id=${id}`
-
-      const response = await $fetch(metingUrl, {
-        timeout: source.timeout || 8000,
-        headers: source.headers
+      const response = await $fetch(source.baseUrl, {
+        params: { server: 'netease', type: 'song', id: String(id) },
+        timeout: source.timeout || 8000
       })
-
-      // Meting API 返回歌曲信息数组
       if (Array.isArray(response) && response.length > 0) {
-        const songInfo = response[0]
-        return {
-          success: true,
-          data: {
-            name: songInfo.name,
-            artist: songInfo.artist,
-            url: songInfo.url,
-            pic: songInfo.pic,
-            lrc: songInfo.lrc
-          }
-        }
+        return { success: true, data: response[0] }
       }
-
       return { success: false, error: 'Meting API 未返回有效数据' }
     } catch (error: any) {
       return { success: false, error: error?.message || '未知错误' }
@@ -370,12 +386,12 @@ export const useMusicSources = () => {
    *  3. meta 提供了 title + artist 以便搜索
    *
    * 升级策略：
-   *  - 目标平台为对侧（netease ↔ tencent）
+   *  - 目标平台为对侧（netease ↔ tencent，migu → netease）
    *  - 对侧结果必须比当前格式更高阶才接受
    *  - TTML 需要 enableOnlineTTMLLyric 开启才接受
    */
   const tryUpgradeLyric = async (
-    platform: 'netease' | 'tencent',
+    platform: 'netease' | 'tencent' | 'migu',
     currentData: LyricResultData,
     meta?: LyricUpgradeMeta
   ): Promise<boolean> => {
@@ -385,6 +401,11 @@ export const useMusicSources = () => {
 
     const currentRank = getCurrentRank(currentData)
     const targetPlatform = platform === 'netease' ? 'tencent' : 'netease'
+    // 目标平台被管理员禁用时跳过跨平台歌词升级
+    if (import.meta.client && !globalEnabledPlatforms.value.includes(targetPlatform)) {
+      console.warn(`[getLyrics] 跨平台歌词升级跳过：目标平台 ${targetPlatform} 已被禁用`)
+      return false
+    }
     const queries = buildLyricUpgradeQueries(meta)
     if (queries.length === 0) return false
 
@@ -462,6 +483,19 @@ export const useMusicSources = () => {
           candidateData: { lrc?: string; yrc?: string; ttml?: string },
           format: 'ttml' | 'yrc'
         ) => {
+          // 无基准歌词时（如咪咕官方歌词获取失败）无法做内容匹配，仅校验时长差异
+          if (!currentData.lrc && !currentData.yrc) {
+            if (meta.duration && best.duration) {
+              const durationDiffMs = Math.abs(meta.duration - best.duration)
+              if (durationDiffMs > Math.max(8000, meta.duration * 0.04)) {
+                console.info(
+                  `[getLyrics] ${targetPlatform}:${matchedTrack.musicId} ${format} rejected/duration_mismatch`
+                )
+                return false
+              }
+            }
+            return true
+          }
           const decision = evaluateLyricDataMatch(
             { lrc: currentData.lrc, yrc: currentData.yrc },
             candidateData,
@@ -504,7 +538,7 @@ export const useMusicSources = () => {
   }
 
   const fetchLyricsWithoutUpgrade = async (
-    platform: 'netease' | 'tencent',
+    platform: 'netease' | 'tencent' | 'migu',
     id: number | string,
     meta?: LyricUpgradeMeta
   ): Promise<{
@@ -692,6 +726,33 @@ export const useMusicSources = () => {
           }
         }
 
+        /**
+         * 获取咪咕歌词
+         */
+        const fetchMigu = async () => {
+          if (platform !== 'migu') return
+
+          try {
+            const miguResp = await $fetch('/api/native-api/lyric/mg', {
+              params: {
+                contentId: String(id)
+              },
+              timeout: 10000
+            })
+
+            if (miguResp?.success && miguResp?.data) {
+              const d = miguResp.data
+              if (d.lrc) {
+                resultData.lrc = d.lrc
+                hasResult = true
+                emitProgress('official')
+              }
+            }
+          } catch (e) {
+            console.warn('[getLyrics] 咪咕歌词获取失败:', e)
+          }
+        }
+
         const priority = settings.lyricPriority.value
         if (progressive) {
           if (platform === 'netease') {
@@ -712,6 +773,9 @@ export const useMusicSources = () => {
             if (!hasResult) {
               await fetchQMOnce()
             }
+          } else if (platform === 'migu') {
+            // 咪咕平台：直接获取咪咕歌词
+            await fetchMigu()
           } else {
             await fetchQM()
             if (priority !== 'official') {
@@ -722,27 +786,43 @@ export const useMusicSources = () => {
             }
           }
         } else if (priority === 'qm') {
-          await fetchAMLL()
-          await fetchQM()
-          if (!hasResult) await fetchOfficial()
+          if (platform === 'migu') {
+            await fetchMigu()
+          } else {
+            await fetchAMLL()
+            await fetchQM()
+            if (!hasResult) await fetchOfficial()
+          }
         } else if (priority === 'ttml') {
-          // 先尝试 AMLL DB 拿 TTML
-          await fetchAMLL()
-          // 无论是否拿到 TTML，都需要 lrc/trans 作为翻译来源和回退
-          if (!resultData.lrc && !resultData.trans) {
+          if (platform === 'migu') {
+            await fetchMigu()
+          } else {
+            // 先尝试 AMLL DB 拿 TTML
+            await fetchAMLL()
+            // 无论是否拿到 TTML，都需要 lrc/trans 作为翻译来源和回退
+            if (!resultData.lrc && !resultData.trans) {
+              await fetchOfficial()
+              if (!hasResult) await fetchQM()
+            }
+          }
+        } else if (priority === 'official') {
+          if (platform === 'migu') {
+            await fetchMigu()
+          } else {
             await fetchOfficial()
             if (!hasResult) await fetchQM()
           }
-        } else if (priority === 'official') {
-          await fetchOfficial()
-          if (!hasResult) await fetchQM()
         } else {
           // 默认：AMLL → (QQ) → 官方
-          await fetchAMLL()
-          if (settings.enableQQMusicLyric.value) {
-            await fetchQM()
+          if (platform === 'migu') {
+            await fetchMigu()
+          } else {
+            await fetchAMLL()
+            if (settings.enableQQMusicLyric.value) {
+              await fetchQM()
+            }
+            await fetchOfficial()
           }
-          await fetchOfficial()
         }
 
         if (resultData.ttml && (resultData.lrc || resultData.yrc) && !ttmlValidated) {
@@ -762,33 +842,36 @@ export const useMusicSources = () => {
           }
         }
 
+        // 咪咕官方歌词获取失败时（海外部署官方接口不可用），仍尝试跨平台升级作为兜底
+        if (platform === 'migu' && !hasResult) {
+          const upgraded = await tryUpgradeLyric(platform, resultData, meta)
+          if (upgraded) {
+            hasResult = true
+            emitProgress('upgrade')
+          }
+        }
+
         if (hasResult) {
           return { success: true, data: resultData }
         }
 
         if (platform === 'netease') {
           const metingSources = enabledSources.filter((source) => source.id.startsWith('meting-'))
-          for (const metingSource of metingSources) {
+          for (const source of metingSources) {
             try {
-              const metingUrl = `${metingSource.baseUrl}/?server=netease&type=lrc&id=${id}`
-              const resp = await $fetch(metingUrl, {
-                timeout: metingSource.timeout || 8000,
-                headers: metingSource.headers
+              const lyric = await $fetch(source.baseUrl, {
+                params: { server: 'netease', type: 'lrc', id: String(id) },
+                responseType: 'text',
+                timeout: source.timeout || 8000
               })
-              if (resp && typeof resp === 'string' && resp.trim()) {
-                resultData.lrc = resp
-                resultData.trans = ''
-                resultData.yrc = ''
-                resultData.ttml = ''
+              if (lyric.trim()) {
+                resultData.lrc = lyric
                 emitProgress('meting')
-                return {
-                  success: true,
-                  data: cloneLyricData(resultData)
-                }
+                return { success: true, data: cloneLyricData(resultData) }
               }
             } catch (error: any) {
               console.warn(
-                `[getLyrics] Meting API ${metingSource.name} 获取失败:`,
+                `[getLyrics] Meting API ${source.name} 获取失败:`,
                 error?.message || error
               )
             }
@@ -922,11 +1005,19 @@ export const useMusicSources = () => {
    */
   const searchNativeMusic = async (params: MusicSearchParams): Promise<any[]> => {
     const platform = params.platform || 'netease'
-    if (platform !== 'netease' && platform !== 'tencent') {
+    if (platform !== 'netease' && platform !== 'tencent' && platform !== 'migu') {
       return []
     }
 
-    const endpoint = platform === 'netease' ? 'wy' : 'tx'
+    let endpoint: string
+    if (platform === 'netease') {
+      endpoint = 'wy'
+    } else if (platform === 'tencent') {
+      endpoint = 'tx'
+    } else {
+      endpoint = 'mg'
+    }
+
     const url = `/api/native-api/search/${endpoint}`
     const qqMusicCookie =
       platform === 'tencent' && import.meta.client
@@ -950,6 +1041,7 @@ export const useMusicSources = () => {
 
       return response.list.map((item: any) => {
         const isNetease = platform === 'netease'
+        const isMigu = platform === 'migu'
         const txSource = response.source === 'qq-music-api' ? 'qq-music-api' : 'native-tx'
         const mid = item.songmid
         const id = isNetease ? item.songmid : mid || item.songId
@@ -961,13 +1053,13 @@ export const useMusicSources = () => {
           cover: item.img,
           album: item.albumName,
           albumId: item.albumId,
-          duration: isNetease ? item.duration * 1000 : item.duration, // Netease uses ms, Tencent uses s
+          duration: isNetease ? item.duration * 1000 : item.duration, // 网易使用 ms，腾讯/咪咕使用 s
           musicPlatform: platform,
           musicId: id?.toString(),
           url: undefined,
           hasUrl: false,
           sourceInfo: {
-            source: isNetease ? 'netease-backup' : txSource,
+            source: isNetease ? 'netease-backup' : isMigu ? 'migu' : txSource,
             originalId: id?.toString(),
             originalSongId: !isNetease && item.songId ? item.songId.toString() : undefined,
             fetchedAt: new Date(),
@@ -984,24 +1076,11 @@ export const useMusicSources = () => {
     }
   }
 
-  // 服务器是否在中国
-  const isServerInChina = ref<boolean | null>(null)
+  // 服务器是否在中国（模块级单例共享）
+  const isServerInChina = globalIsServerInChina
 
   // 检测服务器位置
-  const checkServerLocation = async () => {
-    if (isServerInChina.value !== null) return
-
-    try {
-      const data = await $fetch('/api/system/location')
-      if (data && data.success) {
-        isServerInChina.value = data.data.isInChina
-        console.log(`[useMusicSources] 服务器位置检测: ${isServerInChina.value ? '中国' : '海外'}`)
-      }
-    } catch (e) {
-      console.warn('[useMusicSources] 服务器位置检测失败，默认为海外:', e)
-      isServerInChina.value = false
-    }
-  }
+  const checkServerLocation = checkServerLocationGlobal
 
   /**
    * 搜索歌曲（带故障转移）
@@ -1028,6 +1107,33 @@ export const useMusicSources = () => {
       // - QQ音乐平台：无论国内外均优先 Native Music
       // - 网易云音乐平台：仅国内服务器优先 Native Music；海外跳过，直接使用第三方 API
       const platform = params.platform || 'netease'
+      // 检查平台是否启用（SSR 阶段跳过，$fetch 无 cookie）
+      if (import.meta.client) {
+        if (!globalEnabledPlatforms.value.includes(platform)) {
+          const { currentLocale, siteConfig } = useLocale()
+          const available = globalEnabledPlatforms.value.filter((p) => p !== platform)
+          const platformName = getPlatformDisplayName(
+            platform,
+            siteConfig.value,
+            currentLocale.value
+          )
+          const availableNames = available
+            .map((p) => getPlatformDisplayName(p, siteConfig.value, currentLocale.value))
+            .join('、')
+          const { localize } = useServerErrors()
+          // 先按 code + params 本地化得到 message，再抛出结构化错误：
+          // data.code 供 extractErrorCode 提取，data.message 供 getThrownMessage 提取
+          const payload = {
+            data: {
+              code: 'MUSIC_SOURCE_PLATFORM_DISABLED',
+              params: [platformName, availableNames]
+            }
+          }
+          const err = new Error(localize(payload))
+          ;(err as any).data = payload.data
+          throw err
+        }
+      }
       const shouldUseNativeFirst = platform === 'tencent' || isServerInChina.value === true
 
       if (
@@ -1083,7 +1189,7 @@ export const useMusicSources = () => {
           throw new Error('未启用哔哩哔哩音源')
         }
       } else if (params.platform === 'tencent') {
-        // QQ音乐平台：优先使用 vkeys v3，其次 vkeys v2；若全部失败，再尝试其他平台
+        // QQ 音乐搜索优先 v3，v2 作为回退。
         const v3 = enabledSources.find((s) => s.id === 'vkeys-v3')
         const v2 = enabledSources.find((s) => s.id === 'vkeys')
         const tencentSources: MusicSource[] = []
@@ -1093,16 +1199,21 @@ export const useMusicSources = () => {
 
         // 第一阶段：仅尝试腾讯专用源
         sourcesToTry = tencentSources
+      } else if (params.platform === 'migu') {
+        // 咪咕音乐平台：使用咪咕专用源
+        const miguSource = enabledSources.find((s) => s.id === 'migu')
+        if (miguSource) {
+          sourcesToTry = [miguSource]
+        } else {
+          throw new Error('未启用咪咕音乐音源')
+        }
       } else {
-        // 网易云音乐平台（默认）：优先使用netease-backup系列，vkeys作为备用
+        // 网易云音乐平台（默认）：优先使用内置官方接口，再回退 GD Studio。
         const neteaseSources = enabledSources.filter((s) => s.id.includes('netease-backup'))
-        const vkeysSource = enabledSources.find((s) => s.id === 'vkeys')
-        const otherSources = enabledSources.filter(
-          (s) => !s.id.includes('netease-backup') && s.id !== 'vkeys'
-        )
+        const gdStudioSource = enabledSources.find((s) => s.id === 'netease-gdstudio')
 
-        sourcesToTry = [...neteaseSources, ...(vkeysSource ? [vkeysSource] : []), ...otherSources]
-        console.log('网易云音乐平台搜索，优先使用netease-backup系列音源')
+        sourcesToTry = [...neteaseSources, ...(gdStudioSource ? [gdStudioSource] : [])]
+        console.log('网易云音乐平台搜索，优先使用内置接口，失败回退 GD Studio')
       }
 
       // 按选定的顺序尝试每个音源
@@ -1139,9 +1250,23 @@ export const useMusicSources = () => {
         }
       }
 
-      // 若为QQ音乐平台，尝试完腾讯源后允许作为最后手段切换到其他平台
+      // 若为QQ音乐平台，尝试完腾讯源后允许作为最后手段切换到其他平台（排除已禁用的平台）
       if (params.platform === 'tencent') {
-        const otherSources = enabledSources.filter((s) => s.id !== 'vkeys-v3' && s.id !== 'vkeys')
+        // 音源 id → 平台 key 映射（仅对本功能支持的平台生效）
+        const platformOfSource = (id: string): string => {
+          if (id.includes('netease')) return 'netease'
+          if (id.includes('bilibili')) return 'bilibili'
+          if (id.includes('migu')) return 'migu'
+          return ''
+        }
+        const otherSources = enabledSources.filter(
+          (s) =>
+            s.id !== 'vkeys-v3' &&
+            s.id !== 'vkeys' &&
+            (platformOfSource(s.id)
+              ? globalEnabledPlatforms.value.includes(platformOfSource(s.id))
+              : true)
+        )
         if (otherSources.length) {
           console.log('QQ音乐平台所有专用源失败，作为最后手段尝试其他平台音源')
           for (const source of otherSources) {
@@ -1198,16 +1323,13 @@ export const useMusicSources = () => {
         throw error
       }
     } else if (source.id === 'vkeys-v3') {
-      // Vkeys v3 API（仅支持QQ音乐搜索）
-      const platform = params.platform || 'tencent'
-      if (platform !== 'tencent') {
-        throw new Error('vkeys v3 仅支持QQ音乐搜索')
+      if ((params.platform || 'tencent') !== 'tencent') {
+        throw new Error('vkeys v3 仅支持 QQ 音乐搜索')
       }
-
       const page = Math.floor((params.offset || 0) / (params.limit || 10)) + 1
       const limit = params.limit || 10
       url = `${source.baseUrl}/tencent/search/song?keyword=${encodeURIComponent(params.keywords)}&page=${page}&limit=${limit}`
-      transformResponse = (data: any) => transformVkeysV3TencentSearch(data)
+      transformResponse = transformVkeysV3TencentSearch
     } else if (source.id === 'vkeys') {
       // Vkeys API - 根据用户选择的平台使用对应的API
       const platform = params.platform || 'netease' // 使用用户选择的平台，默认网易云
@@ -1222,31 +1344,53 @@ export const useMusicSources = () => {
       }
 
       transformResponse = (data: any) => transformVkeysResponse(data, platform)
-    } else if (source.id === 'netease-rrvenn') {
-      url = `${source.baseUrl}/search?keyword=${encodeURIComponent(params.keywords)}&limit=${params.limit || 30}`
+    } else if (source.id === 'netease-gdstudio') {
+      url = `${source.baseUrl}?types=search&source=netease&name=${encodeURIComponent(params.keywords)}&count=${params.limit || 30}`
       transformResponse = (data: any) => {
-        if (!data?.success || data?.status !== 200 || !Array.isArray(data?.data)) {
-          throw new Error(`rrvenn API错误: ${data?.message || '未知错误'}`)
+        if (!Array.isArray(data)) {
+          throw new Error('GD Studio 搜索响应无效')
         }
-        return data.data.map((item: any) => ({
+        return data.map((item: any) => ({
           id: item.id,
           title: item.name,
-          artist:
-            typeof item.artists === 'string'
-              ? item.artists
-              : Array.isArray(item.artists)
-                ? item.artists.map((a: any) => a.name || a).join('/')
-                : item.artist_string || '未知艺术家',
-          cover: item.picUrl,
+          artist: Array.isArray(item.artist) ? item.artist.join('/') : item.artist || '未知艺术家',
+          cover: item.pic_id,
           album: item.album,
-          albumId: item.albumId,
+          albumId: item.album_id,
           duration: 0,
           musicPlatform: 'netease',
           musicId: item.id?.toString(),
           sourceInfo: {
-            source: 'netease-rrvenn',
+            source: 'netease-gdstudio',
             originalId: item.id?.toString(),
             fetchedAt: new Date()
+          }
+        }))
+      }
+    } else if (source.id === 'migu') {
+      // 咪咕音乐使用 Native API 搜索
+      const page = Math.floor((params.offset || 0) / (params.limit || 30)) + 1
+      url = `/api/native-api/search/mg?str=${encodeURIComponent(params.keywords)}&page=${page}&limit=${params.limit || 30}`
+      transformResponse = (data: any) => {
+        if (!data || !data.list) {
+          return []
+        }
+        return data.list.map((item: any) => ({
+          id: item.songmid,
+          title: item.name,
+          artist: item.singer?.replace(/、/g, '/') || '未知艺术家',
+          cover: item.img,
+          album: item.albumName,
+          albumId: item.albumId,
+          duration: item.duration, //秒
+          musicPlatform: 'migu',
+          musicId: item.songmid,
+          sourceInfo: {
+            source: 'migu',
+            originalId: item.songmid,
+            fetchedAt: new Date(),
+            quality: item._types,
+            types: item.types
           }
         }))
       }
@@ -1277,18 +1421,10 @@ export const useMusicSources = () => {
     try {
       console.log(`[${source.name}] 请求URL:`, finalUrl)
       // v3 请求使用简单请求，不携带任何会触发预检的自定义头
-      const requestHeaders =
-        source.id === 'vkeys-v3'
-          ? undefined
-          : ({
-              'Content-Type': 'application/json',
-              ...source.headers
-            } as Record<string, string>)
-
       response = await $fetch(finalUrl, {
         timeout: source.timeout || config.value.timeout,
         signal,
-        headers: requestHeaders
+        headers: source.headers
       })
       console.log(`[${source.name}] API响应:`, response)
 
@@ -1312,10 +1448,7 @@ export const useMusicSources = () => {
           response = await $fetch(fallbackUrl, {
             timeout: source.timeout || config.value.timeout,
             signal,
-            headers: {
-              'Content-Type': 'application/json',
-              ...source.headers
-            }
+            headers: source.headers
           })
           console.log(`[${source.name}] 备用API响应:`, response)
 
@@ -1349,7 +1482,7 @@ export const useMusicSources = () => {
     } catch (error: any) {
       console.error(`[${source.name}] 数据转换失败:`, error.message)
       console.error(`[${source.name}] 原始响应数据:`, response)
-      throw new Error(`数据转换失败: ${error.message}`)
+      throw new Error(`数据转换失败: ${error.message}`, { cause: error })
     }
   }
 
@@ -1416,45 +1549,35 @@ export const useMusicSources = () => {
       // 默认使用网易云端点进行详情搜索
       url = `${source.baseUrl}/netease?word=${encodeURIComponent(ids)}&num=50`
       transformResponse = (data: any) => transformVkeysResponse(data, 'netease')
-    } else if (source.id === 'netease-rrvenn') {
-      const level = mapQualityToLevel(4)
-      url = `${source.baseUrl}/Song_V1`
-      fetchOptions.params = { url: ids, level, type: 'json' }
+    } else if (source.id === 'netease-gdstudio') {
+      url = `${source.baseUrl}?types=search&source=netease&name=${encodeURIComponent(ids)}&count=1`
       transformResponse = (response: any) => {
-        if (response?.status !== 200 || !response?.data) {
-          throw new Error(`API响应错误: ${response.message || '未知错误'}`)
+        if (!Array.isArray(response) || response.length === 0) {
+          throw new Error('GD Studio 未返回歌曲详情')
         }
-        const data = response.data
-        const lastLine =
-          (data.lyric || '')
-            .split('\n')
-            .filter((l: string) => l.trim())
-            .pop() || ''
-        const match = lastLine.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\]/)
-        let durationMs = 0
-        if (match) {
-          durationMs =
-            (parseInt(match[1], 10) * 60 + parseInt(match[2], 10)) * 1000 +
-            parseInt(match[3].padEnd(3, '0'), 10)
-        }
+        const data = response[0]
         return [
           {
             id: data.id,
             title: data.name,
-            artist: data.ar_name || '未知艺术家',
-            cover: data.pic,
-            album: data.al_name,
-            duration: durationMs,
+            artist: Array.isArray(data.artist)
+              ? data.artist.join('/')
+              : data.artist || '未知艺术家',
+            cover: data.pic_id,
+            album: data.album,
+            duration: 0,
             musicPlatform: 'netease',
             musicId: data.id?.toString(),
             sourceInfo: {
-              source: 'netease-rrvenn',
+              source: 'netease-gdstudio',
               originalId: data.id?.toString(),
               fetchedAt: new Date()
             }
           }
         ]
       }
+    } else if (source.id === 'ygking-qq') {
+      throw new Error('Ygking QQ 音乐仅支持播放链接获取')
     } else {
       // 网易云备用API
       url = `${source.baseUrl}/song/detail?ids=${ids}`
@@ -1551,7 +1674,7 @@ export const useMusicSources = () => {
 
   /**
    * 获取歌曲播放URL
-   * 根据平台选择合适的音源：网易云优先使用netease-backup；QQ音乐仅使用vkeys系（不跨平台）
+   * 根据平台选择合适的音源：网易云优先内置接口；QQ音乐使用 vkeys。
    */
   const getSongUrl = async (
     id: number | string,
@@ -1627,10 +1750,16 @@ export const useMusicSources = () => {
         if (bilibiliSource) {
           sourcesToTry.push({ source: bilibiliSource, type: 'bilibili' })
         }
+      } else if (platform === 'migu') {
+        // 咪咕音乐平台：使用咪咕专用源
+        const miguSource = enabledSources.find((source) => source.id === 'migu')
+        if (miguSource) {
+          sourcesToTry.push({ source: miguSource, type: 'migu' as any })
+        }
       } else if (platform === 'tencent') {
-        // QQ音乐平台：优先 vkeys v3（获取音质列表并选择可用项），然后回退到 vkeys v2
-
+        // QQ 音乐保留所有 Vkeys 路径，新增直连源仅作为最后回退。
         const v3 = enabledSources.find((source) => source.id === 'vkeys-v3')
+        const ygkingSource = enabledSources.find((source) => source.id === 'ygking-qq')
         const v2 = enabledSources.find((source) => source.id === 'vkeys')
         if (v3) {
           sourcesToTry.push({ source: v3, type: 'tencent' })
@@ -1638,15 +1767,15 @@ export const useMusicSources = () => {
         if (v2) {
           sourcesToTry.push({ source: v2, type: 'tencent' })
         }
+        if (ygkingSource) {
+          sourcesToTry.push({ source: ygkingSource, type: 'tencent' })
+        }
       } else {
         // 网易云音乐平台（默认）
         const neteaseSource = enabledSources.find((source) => source.id.includes('netease-backup'))
-        const vkeysSource = enabledSources.find((source) => source.id === 'vkeys')
-        const rrvennSource = enabledSources.find((source) => source.id === 'netease-rrvenn')
+        const gdStudioSource = enabledSources.find((source) => source.id === 'netease-gdstudio')
 
-        const orderedSources = hasNeteaseLogin
-          ? [neteaseSource, rrvennSource, vkeysSource]
-          : [rrvennSource, neteaseSource]
+        const orderedSources = [neteaseSource, gdStudioSource]
 
         for (const source of orderedSources) {
           if (source) {
@@ -1654,27 +1783,8 @@ export const useMusicSources = () => {
           }
         }
 
-        // 添加 Meting API 备用源
-        const metingSources = enabledSources.filter((source) => source.id.startsWith('meting-'))
-        metingSources.forEach((source) => {
+        for (const source of enabledSources.filter((source) => source.id.startsWith('meting-'))) {
           sourcesToTry.push({ source, type: 'netease' })
-        })
-
-        // 添加其他备用音源
-        const otherSources = enabledSources.filter(
-          (source) =>
-            source.id !== 'vkeys' &&
-            source.id !== 'netease-rrvenn' &&
-            !source.id.includes('netease-backup') &&
-            !source.id.startsWith('meting-')
-        )
-        otherSources.forEach((source) => {
-          sourcesToTry.push({ source, type: 'netease' })
-        })
-
-        // 未登录时，将 vkeys 作为最后的获取播放链接音源
-        if (!hasNeteaseLogin && vkeysSource) {
-          sourcesToTry.push({ source: vkeysSource, type: 'netease' })
         }
       }
 
@@ -1690,33 +1800,98 @@ export const useMusicSources = () => {
           if (source.id === 'bilibili') {
             const result = await getBilibiliTrackUrl(idParam, options?.bilibiliCid)
             url = result.url
-          } else if (source.id === 'netease-rrvenn') {
-            // rrvenn API (只支持网易云)
-            let neteaseQuality: number | null = null
+          } else if (source.id === 'migu') {
+            const miguQualityFlag =
+              quality === 2 ? 'HQ' : quality === 3 ? 'SQ' : quality === 4 ? 'ZQ24' : 'PQ'
+            try {
+              // 服务器位于海外时咪咕官方接口不可用，交由上层使用星海音源
+              if (isServerInChina.value === null) {
+                await checkServerLocation()
+              }
+              if (isServerInChina.value === false) {
+                throw new Error('服务器位于海外，咪咕播放链接改用第三方音源')
+              }
+              // 服务端以 PQ 取链后按 toneFlag 升级音质路径
+              const miguResponse: any = await $fetch('/api/native-api/migu/playurl', {
+                params: {
+                  contentId: idParam,
+                  toneFlag: miguQualityFlag
+                },
+                timeout: source.timeout || 10000
+              })
 
-            if (quality !== undefined && quality !== null) {
-              neteaseQuality = Number(quality)
+              if (miguResponse?.success && miguResponse?.url) {
+                url = miguResponse.url
+              }
+            } catch (miguErr) {
+              console.warn('[getSongUrl] 咪咕播放链接获取失败:', miguErr)
+            }
+          } else if (source.id === 'netease-gdstudio') {
+            const response: any = await $fetch(source.baseUrl, {
+              params: { types: 'url', source: 'netease', id: idParam, br: 128 },
+              timeout: source.timeout || 10000
+            })
+            if (response?.url) {
+              url = String(response.url)
+            }
+          } else if (source.id.startsWith('meting-')) {
+            const songInfo = await getMetingSongInfo(idParam, source)
+            if (songInfo.success && songInfo.data?.url) {
+              url = String(songInfo.data.url)
             } else {
-              try {
-                const { useAudioQuality } = await import('./useAudioQuality')
-                const { getQuality } = useAudioQuality()
-                neteaseQuality = Number(getQuality('netease'))
-              } catch (error) {}
+              const response = await fetch(
+                `${source.baseUrl}?server=netease&type=url&id=${encodeURIComponent(idParam)}`,
+                { redirect: 'follow' }
+              )
+              if (response.ok && response.url) {
+                url = response.url
+              }
             }
-
-            if (neteaseQuality === null || Number.isNaN(neteaseQuality)) {
-              neteaseQuality = 4
+          } else if (source.id === 'vkeys-v3') {
+            const v3IdParam = getVkeysIdParam('tencent', idParam)
+            const infoResponse: any = await $fetch(
+              `${source.baseUrl}/tencent/song/info?${v3IdParam.key}=${encodeURIComponent(v3IdParam.value)}`,
+              { timeout: source.timeout || 8000 }
+            )
+            const qualityInfo = Array.isArray(infoResponse?.data?.qualityInfo)
+              ? infoResponse.data.qualityInfo
+              : []
+            if (infoResponse?.code !== 0 || qualityInfo.length === 0) {
+              throw new Error('vkeys v3 未返回可用音质')
             }
-
-            const level = mapQualityToLevel(neteaseQuality)
-
-            const rrvennResp = await $fetch(`${source.baseUrl}/song`, {
-              params: { url: idParam, level },
+            const targetQuality = Number.isNaN(requestedQuality) ? 8 : requestedQuality
+            const qualityCandidates = [...new Set([targetQuality, 8, 4, 10, 11, 14])]
+            const selectedQuality = qualityCandidates.find((candidate) =>
+              qualityInfo.some(
+                (item: any) => Number(item.type) === candidate && Number(item.size) > 0
+              )
+            )
+            const v2Source = enabledSources.find((item) => item.id === 'vkeys')
+            if (!v2Source || selectedQuality === undefined) {
+              throw new Error('vkeys v3 未找到可播放音质')
+            }
+            const v2Url = `${v2Source.baseUrl}/tencent?${v3IdParam.key}=${encodeURIComponent(v3IdParam.value)}&quality=${selectedQuality}`
+            const v2Response: any = await $fetch(v2Url, { timeout: v2Source.timeout || 8000 })
+            if (v2Response?.code === 200 && v2Response?.data?.url) {
+              url = String(v2Response.data.url)
+            }
+          } else if (source.id === 'ygking-qq') {
+            const qualityMap: Record<number, string> = {
+              4: '128',
+              8: '320',
+              10: 'flac',
+              11: 'master',
+              14: 'master'
+            }
+            const qualityKey = qualityMap[requestedQuality] || '320'
+            const response: any = await $fetch(source.baseUrl, {
+              params: { mid: idParam, quality: qualityKey },
               timeout: source.timeout || 8000
             })
-
-            if (rrvennResp?.success && rrvennResp?.data?.url) {
-              url = String(rrvennResp.data.url)
+            if (response?.code === 0 && response?.data) {
+              const directUrl =
+                response.data[idParam] || response.data[Object.keys(response.data)[0]]
+              if (directUrl) url = String(directUrl)
             }
           } else if (source.id === 'vkeys') {
             // Vkeys API
@@ -1742,127 +1917,6 @@ export const useMusicSources = () => {
                 url = String(vkeysResp.data.url)
                 break
               }
-            }
-          } else if (source.id === 'vkeys-v3') {
-            // Vkeys v3：先获取歌曲信息与音质列表，再按可用音质选择并调用 v2 获取可播放URL
-            try {
-              const v3IdParam = getVkeysIdParam('tencent', idParam)
-              const infoUrl = `${source.baseUrl}/tencent/song/info?${v3IdParam.key}=${encodeURIComponent(v3IdParam.value)}`
-              const infoResp = await $fetch(infoUrl, { timeout: source.timeout || 8000 })
-
-              // v3 成功码为 0
-              if (typeof infoResp?.code !== 'number' || infoResp.code !== 0 || !infoResp?.data) {
-                throw new Error(
-                  `v3 歌曲信息接口错误: ${infoResp?.message || '未知错误'} (code: ${infoResp?.code})`
-                )
-              }
-
-              const qualityInfo: Array<{
-                type: number
-                size: number
-                file: string
-                quality: string
-              }> = infoResp.data.qualityInfo || []
-              if (!Array.isArray(qualityInfo) || qualityInfo.length === 0) {
-                throw new Error('v3 歌曲信息缺少音质列表')
-              }
-
-              // 目标音质：优先使用传入quality，否则读取设置
-              let targetQuality: number
-              const numQuality =
-                quality !== undefined && quality !== null && quality !== '' ? Number(quality) : NaN
-
-              if (!isNaN(numQuality)) {
-                targetQuality = numQuality
-              } else {
-                try {
-                  const { useAudioQuality } = await import('./useAudioQuality')
-                  const { getQuality } = useAudioQuality()
-                  targetQuality = Number(getQuality('tencent'))
-                  if (isNaN(targetQuality)) targetQuality = 8
-                } catch {
-                  targetQuality = 8 // 默认 HQ 高音质
-                }
-              }
-
-              // 构造腾讯音质优先序列：以目标为首，其次按 QUALITY_OPTIONS.tencent 顺序降级，最后兜底常见音质
-              let fallbackList: number[] = []
-              try {
-                const { QUALITY_OPTIONS } = await import('./useAudioQuality')
-                const optionValues =
-                  (QUALITY_OPTIONS as any)?.tencent?.map((o: any) => o.value) || []
-                fallbackList = optionValues.filter((v: number) => v !== targetQuality)
-              } catch {
-                // 兜底序列
-                fallbackList = [8, 4, 10, 11, 14]
-              }
-              const tryQualities = [targetQuality, ...fallbackList]
-
-              // 在 v3 音质列表中选择第一个 size>0 的可用音质
-              const available = tryQualities.find((q) =>
-                qualityInfo.some((qi) => qi.type === q && Number(qi.size) > 0)
-              )
-              const selectedQuality = available ?? targetQuality
-
-              // 使用 vkeys v2 点歌接口获取可播放URL（v3 不直接返回 URL）
-              const v2Source = getEnabledSources().find((s) => s.id === 'vkeys')
-              if (!v2Source) {
-                throw new Error('未配置 vkeys v2 音源以获取播放链接')
-              }
-
-              const v2IdParam = getVkeysIdParam('tencent', idParam)
-              const v2Url = `${v2Source.baseUrl}/tencent?${v2IdParam.key}=${encodeURIComponent(v2IdParam.value)}&quality=${selectedQuality}`
-              const v2Resp = await $fetch(v2Url, { timeout: v2Source.timeout || 8000 })
-              if (v2Resp?.code === 200 && v2Resp?.data?.url) {
-                url = String(v2Resp.data.url)
-              } else {
-                // 如果首选失败，尝试在可用音质上继续降级（排除已尝试项）
-                for (const q of tryQualities.filter((q) => q !== selectedQuality)) {
-                  const hasQuality = qualityInfo.some((qi) => qi.type === q && Number(qi.size) > 0)
-                  if (!hasQuality) continue
-
-                  const altUrl = `${v2Source.baseUrl}/tencent?${v2IdParam.key}=${encodeURIComponent(v2IdParam.value)}&quality=${q}`
-                  const altResp = await $fetch(altUrl, { timeout: v2Source.timeout || 8000 })
-                  if (altResp?.code === 200 && altResp?.data?.url) {
-                    url = String(altResp.data.url)
-                    break
-                  }
-                }
-              }
-
-              // 若仍未拿到URL，抛出错误以便外层继续按源回退
-              if (!url) {
-                throw new Error('v3 信息+v2 点歌未获取到有效播放链接')
-              }
-            } catch (error: any) {
-              // vkeys v3 路径失败，继续回退其它音源
-            }
-          } else if (source.id.startsWith('meting-')) {
-            // Meting API - 获取播放链接
-            try {
-              // 首先尝试获取歌曲信息，包含播放链接
-              const songInfo = await getMetingSongInfo(idParam, source)
-
-              if (songInfo.success && songInfo.data?.url) {
-                // 从歌曲信息中提取播放链接
-                url = songInfo.data.url
-              } else {
-                // 如果获取歌曲信息失败，直接使用 URL 类型的 API
-                const metingUrl = `${source.baseUrl}/?server=netease&type=url&id=${idParam}`
-
-                // 对于 Meting API，我们需要处理重定向
-                const response = await fetch(metingUrl, {
-                  method: 'GET',
-                  headers: source.headers || {},
-                  redirect: 'follow'
-                })
-
-                if (response.ok && response.url) {
-                  url = response.url
-                }
-              }
-            } catch (error: any) {
-              // Meting API 获取失败，继续回退其它音源
             }
           } else {
             // 网易云备用API
@@ -1947,7 +2001,7 @@ export const useMusicSources = () => {
    * NeteaseCloudMusicApi 优先，其次 vkeys；腾讯仅 vkeys
    */
   const getLyrics = async (
-    platform: 'netease' | 'tencent',
+    platform: 'netease' | 'tencent' | 'migu',
     id: number | string,
     meta?: LyricUpgradeMeta
   ): Promise<{
@@ -2057,40 +2111,25 @@ export const useMusicSources = () => {
     }
   }
 
-  /**
-   * 转换 Vkeys v3 QQ音乐搜索响应
-   * 文档: https://doc.vkeys.cn/v3/音乐模块/QQ音乐/搜索相关接口/2-song.html
-   */
   const transformVkeysV3TencentSearch = (response: any): any[] => {
-    if (!response) throw new Error('API响应为空')
-    if (typeof response.code !== 'number') throw new Error('响应缺少状态码')
-
-    // v3 成功码为 0
-    if (response.code !== 0) {
-      const msg = `vkeys v3 API错误: ${response.message || '未知错误'} (code: ${response.code})`
-      throw new Error(msg)
+    if (response?.code !== 0 || !Array.isArray(response?.data?.list)) {
+      throw new Error(`vkeys v3 API 错误: ${response?.message || '响应无效'}`)
     }
 
-    const data = response.data
-    if (!data || !Array.isArray(data.list)) {
-      throw new Error('v3 响应数据格式不正确')
-    }
-
-    return data.list.map((item: any) => {
+    return response.data.list.map((item: any) => {
       const mid = item.songMID ?? item.mid
       const originalSongId = item.songID ?? item.songId ?? item.id
       const id = mid ?? originalSongId
-      const duration = item.interval ?? item.duration
       return {
         id: id?.toString(),
         title: item.title,
         artist: Array.isArray(item.singerList)
-          ? item.singerList.map((s: any) => s.name).join('/')
+          ? item.singerList.map((singer: any) => singer.name).join('/')
           : item.singer || '',
         cover: item.albumImage || item.cover || '',
         album: item.album || '',
         albumId: item.albumID ?? item.albumId,
-        duration,
+        duration: item.interval ?? item.duration,
         musicPlatform: 'tencent',
         musicId: id?.toString(),
         url: undefined,
@@ -2450,6 +2489,7 @@ export const useMusicSources = () => {
     sourceStatus: readonly(sourceStatus),
     isSearching: readonly(isSearching),
     lastUsedSource: readonly(lastUsedSource),
+    isServerInChina: readonly(isServerInChina),
 
     // 计算属性
     sourceStatusSummary: getSourceStatusSummary,
@@ -2463,6 +2503,7 @@ export const useMusicSources = () => {
     getMetingSongInfo,
     updateSourceStatus,
     validatePlayUrl,
-    getDjPrograms
+    getDjPrograms,
+    checkServerLocation
   }
 }

@@ -3,100 +3,96 @@
     <!-- 顶部标题栏 -->
     <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-black text-zinc-100 tracking-tight">站点配置</h2>
-        <p class="text-xs text-zinc-500 mt-1 font-medium">
-          管理站点全局属性、视觉识别、点歌逻辑及系统安全策略
+        <h2 class="text-2xl font-black text-text-primary tracking-tight">{{ locale.pageTitle }}</h2>
+        <p class="text-xs text-text-tertiary mt-1 font-medium">
+          {{ locale.pageDescription }}
         </p>
       </div>
       <div class="flex gap-3">
         <button
           :disabled="loading || saving"
-          class="flex items-center gap-2 px-5 py-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 text-xs font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex items-center gap-2 px-5 py-2 bg-bg-secondary border border-border-secondary hover:border-border-tertiary text-text-tertiary text-xs font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           @click="resetForm"
         >
-          <RotateCcw :size="14" /> 重置
+          <RotateCcw :size="14" /> {{ locale.reset }}
         </button>
         <button
           :disabled="loading || saving"
-          class="flex items-center gap-2 px-8 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-black rounded-xl shadow-lg shadow-blue-900/20 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex items-center gap-2 px-8 py-2 bg-primary-hover hover:bg-primary text-text-primary text-xs font-black rounded-xl shadow-lg shadow-[var(--primary-glow)] transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
           @click="saveConfig"
         >
           <template v-if="saving">
-            <div
-              class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"
-            />
-            保存中...
+            <AppSpinner :size="14" />
+            {{ locale.saving }}
           </template>
-          <template v-else-if="saveSuccess"> <CheckCircle2 :size="14" /> 已保存 </template>
-          <template v-else> <Save :size="14" /> 保存配置 </template>
+          <template v-else-if="saveSuccess"> <CheckCircle2 :size="14" /> {{ locale.saved }} </template>
+          <template v-else> <Save :size="14" /> {{ locale.saveConfig }} </template>
         </button>
       </div>
     </div>
 
     <div v-if="loading" class="flex flex-col items-center justify-center py-20">
-      <div
-        class="w-8 h-8 border-4 border-zinc-800 border-t-blue-500 rounded-full animate-spin mb-4"
-      />
-      <p class="text-zinc-500 text-sm">加载配置中...</p>
+      <AppSpinner :size="32" class="mb-4" />
+      <p class="text-text-tertiary text-sm">{{ locale.loading }}</p>
     </div>
 
     <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <!-- 基础信息 -->
       <section :class="cardClass">
         <h3
-          class="text-sm font-black text-zinc-100 uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-4"
+          class="text-sm font-black text-text-primary uppercase tracking-widest flex items-center gap-2 border-b border-border-secondary pb-4"
         >
-          <Globe :size="16" class="text-blue-500" /> 基础信息
+          <Globe :size="16" class="text-primary" /> {{ locale.basicInfo }}
         </h3>
         <div class="space-y-4">
           <div>
-            <label :class="labelClass">站点标题</label>
+            <label :class="labelClass">{{ locale.siteTitle }}</label>
             <input
               v-model="formData.siteTitle"
               type="text"
-              placeholder="请输入站点标题"
+              :placeholder="locale.siteTitlePlaceholder"
               :class="inputClass"
             />
           </div>
           <div>
-            <label :class="labelClass">备案号 (ICP)</label>
+            <label :class="labelClass">{{ locale.icpNumber }}</label>
             <input
               v-model="formData.icpNumber"
               type="text"
-              placeholder="请输入备案号"
+              :placeholder="locale.icpPlaceholder"
               :class="inputClass"
             />
           </div>
           <div>
-            <label :class="labelClass">公安联网备案号</label>
+            <label :class="labelClass">{{ locale.gonganNumber }}</label>
             <input
               v-model="formData.gonganNumber"
               type="text"
-              placeholder="请输入公安备案号 (如：陕公网安备 61011302001964 号)"
+              :placeholder="locale.gonganPlaceholder"
               :class="inputClass"
             />
           </div>
           <div class="pt-2">
             <div
-              class="flex items-center justify-between p-3 bg-zinc-950/50 border border-zinc-800 rounded-xl"
+              class="flex items-center justify-between p-3 bg-bg-primary-50 border border-border-secondary rounded-xl"
             >
               <div>
-                <p class="text-xs font-bold text-zinc-200">显示备案图标</p>
-                <p class="text-[10px] text-zinc-500 mt-0.5">在公安联网备案号前显示备案图标</p>
+                <p class="text-xs font-bold text-text-primary">{{ locale.showBeianIcon }}</p>
+                <p class="text-[10px] text-text-tertiary mt-0.5">{{ locale.showBeianIconDesc }}</p>
               </div>
               <input
                 v-model="formData.showBeianIcon"
                 type="checkbox"
-                class="w-5 h-5 rounded border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+                class="w-5 h-5 rounded border-border-secondary bg-bg-secondary cursor-pointer"
               />
             </div>
           </div>
           <div>
-            <label :class="labelClass">站点描述</label>
+            <label :class="labelClass">{{ locale.siteDescription }}</label>
             <textarea
               v-model="formData.siteDescription"
               :rows="3"
-              placeholder="请输入站点描述"
+              :placeholder="locale.siteDescriptionPlaceholder"
               :class="[inputClass, 'resize-none']"
             />
           </div>
@@ -106,114 +102,167 @@
       <!-- 视觉识别 -->
       <section :class="cardClass">
         <h3
-          class="text-sm font-black text-zinc-100 uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-4"
+          class="text-sm font-black text-text-primary uppercase tracking-widest flex items-center gap-2 border-b border-border-secondary pb-4"
         >
-          <ImageIcon :size="16" class="text-purple-500" /> 视觉识别
+          <ImageIcon :size="16" class="text-info" /> {{ locale.visualIdentity }}
         </h3>
         <div class="space-y-4">
           <div>
-            <label :class="labelClass">站点 Logo URL</label>
+            <label :class="labelClass">{{ locale.siteLogoUrl }}</label>
             <input
               v-model="formData.siteLogoUrl"
               type="text"
-              placeholder="请输入Logo图片URL"
+              :placeholder="locale.siteLogoPlaceholder"
               :class="inputClass"
             />
           </div>
           <div>
-            <label :class="labelClass">首页学校 Logo URL (大尺寸)</label>
+            <label :class="labelClass">{{ locale.schoolLogoHome }}</label>
             <input
-              v-model="formData.schoolLogoHomeUrl"
+              v-model="formData.schoolLogoHomeDarkUrl"
               type="text"
-              placeholder="请输入首页学校Logo URL"
+              :placeholder="locale.schoolLogoHomePlaceholder"
               :class="inputClass"
             />
           </div>
           <div>
-            <label :class="labelClass">打印排期 Logo URL (小尺寸)</label>
+            <label :class="labelClass">{{ locale.schoolLogoHomeLight }}</label>
+            <input
+              v-model="formData.schoolLogoHomeLightUrl"
+              type="text"
+              :disabled="!String(formData.schoolLogoHomeDarkUrl || '').trim()"
+              :placeholder="locale.schoolLogoHomeLightPlaceholder"
+              :class="[inputClass, 'disabled:cursor-not-allowed disabled:opacity-50']"
+            />
+          </div>
+          <div>
+            <label :class="labelClass">{{ locale.schoolLogoPrint }}</label>
             <input
               v-model="formData.schoolLogoPrintUrl"
               type="text"
-              placeholder="请输入打印页学校Logo URL"
+              :placeholder="locale.schoolLogoPrintPlaceholder"
               :class="inputClass"
             />
           </div>
         </div>
       </section>
 
+      <!-- 主题设置 -->
+      <section v-if="isSuperAdmin" :class="cardClass">
+        <h3 class="text-sm font-black text-text-primary uppercase tracking-widest flex items-center gap-2 border-b border-border-secondary pb-4">
+          <Palette :size="16" class="text-primary" /> {{ locale.themeSettings }}
+        </h3>
+        <div class="space-y-3">
+          <p class="text-[10px] text-text-tertiary">{{ locale.themeSettingsDesc }}</p>
+          <div
+            v-for="option in themeOptions"
+            :key="option.value"
+            class="flex items-center gap-3 rounded-xl border border-border-secondary bg-bg-primary-50 p-3"
+          >
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-xs font-bold text-text-primary">{{ option.label }}</p>
+              <p v-if="option.value === 'System'" class="mt-0.5 text-[10px] text-text-tertiary">
+                {{ locale.systemThemeHint }}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors"
+              :class="formData.defaultTheme === option.value
+                ? 'border-warning bg-warning-10 text-warning'
+                : 'border-border-secondary text-text-disabled hover:border-warning-30 hover:text-warning'"
+              :aria-label="locale.setDefaultTheme"
+              :aria-pressed="formData.defaultTheme === option.value"
+              @click="setDefaultTheme(option.value)"
+            >
+              <Star :size="15" :fill="formData.defaultTheme === option.value ? 'currentColor' : 'none'" />
+            </button>
+            <button
+              type="button"
+              class="relative h-6 w-12 shrink-0 rounded-full transition-colors"
+              :class="themeToggleClass(option.value)"
+              :aria-label="formData.enabledThemes.includes(option.value) ? locale.disableTheme : locale.enableTheme"
+              :aria-pressed="formData.enabledThemes.includes(option.value)"
+              :disabled="isThemeToggleLocked(option.value)"
+              @click="toggleTheme(option.value)"
+            >
+              <span
+                class="absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow transition-transform"
+                :class="formData.enabledThemes.includes(option.value) ? 'translate-x-6' : 'translate-x-0'"
+              />
+            </button>
+          </div>
+          <p class="text-[10px] text-text-tertiary">{{ locale.defaultThemeDesc }}</p>
+        </div>
+      </section>
+
       <!-- 投稿逻辑设置 -->
       <section :class="cardClass">
         <h3
-          class="text-sm font-black text-zinc-100 uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-4"
+          class="text-sm font-black text-text-primary uppercase tracking-widest flex items-center gap-2 border-b border-border-secondary pb-4"
         >
-          <Settings2 :size="16" class="text-amber-500" /> 投稿逻辑设置
+          <Settings2 :size="16" class="text-warning" /> {{ locale.submissionLogic }}
         </h3>
         <div class="space-y-6">
           <div
-            class="flex items-center justify-between p-3 bg-zinc-950/50 border border-zinc-800 rounded-xl"
+            class="flex items-center justify-between p-3 bg-bg-primary-50 border border-border-secondary rounded-xl"
           >
             <div>
-              <p class="text-xs font-bold text-zinc-200">启用联合投稿</p>
-              <p class="text-[10px] text-zinc-500 mt-0.5">允许用户添加联合投稿人并发起协作投稿</p>
+              <p class="text-xs font-bold text-text-primary">{{ locale.enableCollaborative }}</p>
+              <p class="text-[10px] text-text-tertiary mt-0.5">{{ locale.enableCollaborativeDesc }}</p>
             </div>
             <input
               v-model="formData.enableCollaborativeSubmission"
               type="checkbox"
-              class="w-5 h-5 rounded border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+              class="w-5 h-5 rounded border-border-secondary bg-bg-secondary cursor-pointer"
             />
           </div>
 
           <div
-            class="flex items-center justify-between p-3 bg-zinc-950/50 border border-zinc-800 rounded-xl"
+            class="flex items-center justify-between p-3 bg-bg-primary-50 border border-border-secondary rounded-xl"
           >
             <div>
-              <p class="text-xs font-bold text-zinc-200">启用投稿备注留言</p>
-              <p class="text-[10px] text-zinc-500 mt-0.5">
-                允许用户在投稿时附加公开或仅管理员可见的备注
-              </p>
+              <p class="text-xs font-bold text-text-primary">{{ locale.enableRemarks }}</p>
+              <p class="text-[10px] text-text-tertiary mt-0.5">{{ locale.enableRemarksDesc }}</p>
             </div>
             <input
               v-model="formData.enableSubmissionRemarks"
               type="checkbox"
-              class="w-5 h-5 rounded border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+              class="w-5 h-5 rounded border-border-secondary bg-bg-secondary cursor-pointer"
             />
           </div>
 
           <div
-            class="flex items-center justify-between p-3 bg-zinc-950/50 border border-zinc-800 rounded-xl"
+            class="flex items-center justify-between p-3 bg-bg-primary-50 border border-border-secondary rounded-xl"
           >
             <div>
-              <p class="text-xs font-bold text-zinc-200">启用点歌券点歌</p>
-              <p class="text-[10px] text-zinc-500 mt-0.5">
-                允许用户使用点歌券在投稿时抵扣或提交点歌
-              </p>
+              <p class="text-xs font-bold text-text-primary">{{ locale.enableCardCodeRequests }}</p>
+              <p class="text-[10px] text-text-tertiary mt-0.5">{{ locale.enableCardCodeRequestsDesc }}</p>
             </div>
             <input
               v-model="formData.enableCardCodeRequests"
               type="checkbox"
-              class="w-5 h-5 rounded border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+              class="w-5 h-5 rounded border-border-secondary bg-bg-secondary cursor-pointer"
             />
           </div>
 
           <div
-            class="flex items-center justify-between p-3 bg-zinc-950/50 border border-zinc-800 rounded-xl"
+            class="flex items-center justify-between p-3 bg-bg-primary-50 border border-border-secondary rounded-xl"
           >
             <div>
-              <p class="text-xs font-bold text-zinc-200">强制使用点歌券投稿</p>
-              <p class="text-[10px] text-zinc-500 mt-0.5">
-                开启后，所有用户提交点歌时必须填写有效点歌券
-              </p>
+              <p class="text-xs font-bold text-text-primary">{{ locale.requireCardCodeForRequests }}</p>
+              <p class="text-[10px] text-text-tertiary mt-0.5">{{ locale.requireCardCodeForRequestsDesc }}</p>
             </div>
             <input
               v-model="formData.requireCardCodeForRequests"
               type="checkbox"
-              class="w-5 h-5 rounded border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+              class="w-5 h-5 rounded border-border-secondary bg-bg-secondary cursor-pointer"
             />
           </div>
 
           <div
             :class="[
-              'flex items-center justify-between p-3 bg-zinc-950/50 border border-zinc-800 rounded-xl transition-opacity',
+              'flex items-center justify-between p-3 bg-bg-primary-50 border border-border-secondary rounded-xl transition-opacity',
               !formData.enableSubmissionLimit ||
               (!formData.enableCardCodeRequests && !formData.requireCardCodeForRequests)
                 ? 'opacity-50'
@@ -221,9 +270,9 @@
             ]"
           >
             <div class="pr-4">
-              <p class="text-xs font-bold text-zinc-200">允许点歌券突破投稿限额</p>
-              <p class="text-[10px] text-zinc-500 mt-0.5">
-                开启后，有效点歌券投稿不占普通额度，并可在日、周或月额度用完后继续投稿
+              <p class="text-xs font-bold text-text-primary">{{ locale.enableCardCodeLimitBypass }}</p>
+              <p class="text-[10px] text-text-tertiary mt-0.5">
+                {{ locale.enableCardCodeLimitBypassDesc }}
               </p>
             </div>
             <input
@@ -233,86 +282,78 @@
                 !formData.enableSubmissionLimit ||
                 (!formData.enableCardCodeRequests && !formData.requireCardCodeForRequests)
               "
-              class="w-5 h-5 rounded border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer disabled:cursor-not-allowed"
+              class="w-5 h-5 rounded border-border-secondary bg-bg-secondary cursor-pointer disabled:cursor-not-allowed"
             />
           </div>
 
           <div
-            class="flex items-center justify-between p-3 bg-zinc-950/50 border border-zinc-800 rounded-xl"
+            class="flex items-center justify-between p-3 bg-bg-primary-50 border border-border-secondary rounded-xl"
           >
             <div>
-              <p class="text-xs font-bold text-zinc-200">启用重播申请</p>
-              <p class="text-[10px] text-zinc-500 mt-0.5">允许用户对本学期已播放过的歌曲再次申请</p>
+              <p class="text-xs font-bold text-text-primary">{{ locale.enableReplay }}</p>
+              <p class="text-[10px] text-text-tertiary mt-0.5">{{ locale.enableReplayDesc }}</p>
             </div>
             <input
               v-model="formData.enableReplayRequests"
               type="checkbox"
-              class="w-5 h-5 rounded border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+              class="w-5 h-5 rounded border-border-secondary bg-bg-secondary cursor-pointer"
             />
           </div>
 
           <div class="space-y-4">
             <div
-              class="flex items-center justify-between p-3 bg-zinc-950/50 border border-zinc-800 rounded-xl"
+              class="flex items-center justify-between p-3 bg-bg-primary-50 border border-border-secondary rounded-xl"
             >
               <div>
-                <p class="text-xs font-bold text-zinc-200">启用投稿限额</p>
-                <p class="text-[10px] text-zinc-500 mt-0.5">限制单个用户的点歌频率</p>
+                <p class="text-xs font-bold text-text-primary">{{ locale.enableLimit }}</p>
+                <p class="text-[10px] text-text-tertiary mt-0.5">{{ locale.enableLimitDesc }}</p>
               </div>
               <input
                 v-model="formData.enableSubmissionLimit"
                 type="checkbox"
-                class="w-5 h-5 rounded border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+                class="w-5 h-5 rounded border-border-secondary bg-bg-secondary cursor-pointer"
               />
             </div>
 
             <div v-if="formData.enableSubmissionLimit" class="space-y-4">
-              <div class="grid grid-cols-3 gap-2 p-1 bg-zinc-950 border border-zinc-800 rounded-xl">
+              <div class="grid grid-cols-3 gap-2 p-1 bg-bg-primary border border-border-secondary rounded-xl">
                 <button
                   :class="[
                     'py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all',
                     activeLimitTab === 'daily'
-                      ? 'bg-zinc-800 text-blue-400 shadow-sm'
-                      : 'text-zinc-600 hover:text-zinc-400'
+                      ? 'bg-bg-tertiary text-primary shadow-sm'
+                      : 'text-text-disabled hover:text-text-tertiary'
                   ]"
                   @click="handleLimitTypeChange('daily')"
                 >
-                  每日限额
+                  {{ locale.dailyLimit }}
                 </button>
                 <button
                   :class="[
                     'py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all',
                     activeLimitTab === 'weekly'
-                      ? 'bg-zinc-800 text-blue-400 shadow-sm'
-                      : 'text-zinc-600 hover:text-zinc-400'
+                      ? 'bg-bg-tertiary text-primary shadow-sm'
+                      : 'text-text-disabled hover:text-text-tertiary'
                   ]"
                   @click="handleLimitTypeChange('weekly')"
                 >
-                  每周限额
+                  {{ locale.weeklyLimit }}
                 </button>
                 <button
                   :class="[
                     'py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all',
                     activeLimitTab === 'monthly'
-                      ? 'bg-zinc-800 text-blue-400 shadow-sm'
-                      : 'text-zinc-600 hover:text-zinc-400'
+                      ? 'bg-bg-tertiary text-primary shadow-sm'
+                      : 'text-text-disabled hover:text-text-tertiary'
                   ]"
                   @click="handleLimitTypeChange('monthly')"
                 >
-                  每月限额
+                  {{ locale.monthlyLimit }}
                 </button>
               </div>
 
               <div>
-                <label :class="labelClass"
-                  >{{
-                    activeLimitTab === 'daily'
-                      ? '单日'
-                      : activeLimitTab === 'weekly'
-                        ? '单周'
-                        : '单月'
-                  }}投稿上限</label
-                >
+                <label :class="labelClass">{{ currentLimitLabel }}</label>
                 <div class="relative">
                   <input
                     v-model.number="currentLimitValue"
@@ -321,8 +362,8 @@
                     :class="inputClass"
                   />
                   <span
-                    class="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-700 uppercase"
-                    >首 / 人</span
+                    class="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-text-secondary uppercase"
+                    >{{ locale.limitUnit }}</span
                   >
                 </div>
               </div>
@@ -334,97 +375,91 @@
       <!-- 安全与隐私设置 -->
       <section :class="cardClass">
         <h3
-          class="text-sm font-black text-zinc-100 uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-4"
+          class="text-sm font-black text-text-primary uppercase tracking-widest flex items-center gap-2 border-b border-border-secondary pb-4"
         >
-          <Shield :size="16" class="text-rose-500" /> 安全与隐私设置
+          <Shield :size="16" class="text-error" /> {{ locale.securityPrivacy }}
         </h3>
         <div class="space-y-4">
-          <div class="p-4 bg-zinc-950/50 border border-zinc-800 rounded-xl space-y-4">
+          <div class="p-4 bg-bg-primary-50 border border-border-secondary rounded-xl space-y-4">
             <div class="flex items-start gap-4">
               <div class="shrink-0 pt-0.5">
                 <input
                   id="captcha-enabled"
                   v-model="formData.captchaEnabled"
                   type="checkbox"
-                  class="w-4 h-4 rounded border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+                  class="w-4 h-4 rounded border-border-secondary bg-bg-secondary cursor-pointer"
                 />
               </div>
               <div class="flex-1 space-y-4">
                 <label for="captcha-enabled" class="cursor-pointer block">
-                  <p class="text-xs font-bold text-zinc-200">启用登录人机验证</p>
-                  <p class="text-[10px] text-zinc-500 mt-1 leading-relaxed">
-                    开启后，可以有效防范暴力破解和机器人注册。
+                  <p class="text-xs font-bold text-text-primary">{{ locale.captchaEnabled }}</p>
+                  <p class="text-[10px] text-text-tertiary mt-1 leading-relaxed">
+                    {{ locale.captchaEnabledDesc }}
                   </p>
                 </label>
 
-                <div v-if="formData.captchaEnabled" class="pt-2 border-t border-zinc-800 space-y-4">
+                <div v-if="formData.captchaEnabled" class="pt-2 border-t border-border-secondary space-y-4">
                   <!-- 验证码类型选择 -->
                   <div>
-                    <label class="block text-xs font-bold text-zinc-400 mb-2">验证类型</label>
+                    <label class="block text-xs font-bold text-text-tertiary mb-2">{{ locale.captchaType }}</label>
                     <div class="flex gap-4">
                       <label class="flex items-center gap-2 cursor-pointer">
                         <input
                           v-model="formData.captchaProvider"
                           type="radio"
                           value="graphic"
-                          class="w-4 h-4 rounded-full border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+                          class="w-4 h-4 rounded-full border-border-secondary bg-bg-secondary cursor-pointer"
                         />
-                        <span class="text-sm text-zinc-300">图形验证码</span>
+                        <span class="text-sm text-text-secondary">{{ locale.captchaGraphic }}</span>
                       </label>
                       <label class="flex items-center gap-2 cursor-pointer">
                         <input
                           v-model="formData.captchaProvider"
                           type="radio"
                           value="turnstile"
-                          class="w-4 h-4 rounded-full border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+                          class="w-4 h-4 rounded-full border-border-secondary bg-bg-secondary cursor-pointer"
                         />
-                        <span class="text-sm text-zinc-300">Cloudflare Turnstile</span>
+                        <span class="text-sm text-text-secondary">{{ locale.captchaTurnstile }}</span>
                       </label>
                     </div>
                   </div>
 
                   <!-- 图形验证码配置 -->
                   <div v-if="formData.captchaProvider === 'graphic'">
-                    <label class="block text-xs font-bold text-zinc-400 mb-2"
-                      >触发阈值（失败次数）</label
-                    >
+                    <label class="block text-xs font-bold text-text-tertiary mb-2">{{ locale.captchaMaxFailures }}</label>
                     <input
                       v-model.number="formData.captchaMaxFailures"
                       type="number"
                       min="1"
-                      placeholder="例如: 3"
-                      class="w-full max-w-[200px] bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                      :placeholder="locale.captchaMaxFailuresPlaceholder"
+                      class="w-full max-w-[200px] bg-bg-secondary border border-border-secondary rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-disabled focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
                     />
-                    <p class="text-[10px] text-zinc-500 mt-1">
-                      连续密码错误达到此次数后，后续登录必须输入验证码。建议设置为 3-5 次。
+                    <p class="text-[10px] text-text-tertiary mt-1">
+                      {{ locale.captchaMaxFailuresDesc }}
                     </p>
                   </div>
 
                   <!-- Turnstile 配置 -->
                   <div v-if="formData.captchaProvider === 'turnstile'" class="space-y-4">
                     <div>
-                      <label class="block text-xs font-bold text-zinc-400 mb-2"
-                        >Site Key (Sitekey)</label
-                      >
+                      <label class="block text-xs font-bold text-text-tertiary mb-2">{{ locale.turnstileSiteKey }}</label>
                       <input
                         v-model="formData.turnstileSiteKey"
                         type="text"
-                        placeholder="在此输入 Turnstile 的 Site Key"
-                        class="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                        :placeholder="locale.turnstileSiteKeyPlaceholder"
+                        class="w-full bg-bg-secondary border border-border-secondary rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-disabled focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
                       />
                     </div>
                     <div>
-                      <label class="block text-xs font-bold text-zinc-400 mb-2"
-                        >Secret Key (Secret)</label
-                      >
+                      <label class="block text-xs font-bold text-text-tertiary mb-2">{{ locale.turnstileSecretKey }}</label>
                       <input
                         v-model="formData.turnstileSecretKey"
                         type="password"
-                        placeholder="在此输入 Turnstile 的 Secret Key (留空表示不修改)"
-                        class="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                        :placeholder="locale.turnstileSecretKeyPlaceholder"
+                        class="w-full bg-bg-secondary border border-border-secondary rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-disabled focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
                       />
-                      <p class="text-[10px] text-zinc-500 mt-1">
-                        开启 Turnstile 后，所有用户在每次登录时都需要进行安全验证。
+                      <p class="text-[10px] text-text-tertiary mt-1">
+                        {{ locale.turnstileSecretKeyDesc }}
                       </p>
                     </div>
                   </div>
@@ -433,74 +468,90 @@
             </div>
           </div>
 
-          <div class="p-4 bg-zinc-950/50 border border-zinc-800 rounded-xl space-y-4">
+          <div class="p-4 bg-bg-primary-50 border border-border-secondary rounded-xl space-y-4">
+            <div class="flex items-start gap-4">
+              <div class="shrink-0 pt-0.5">
+                <input
+                  id="force-password-change-first-login"
+                  v-model="formData.forcePasswordChangeOnFirstLogin"
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-border-secondary bg-bg-secondary cursor-pointer"
+                />
+              </div>
+              <label for="force-password-change-first-login" class="cursor-pointer">
+                <p class="text-xs font-bold text-text-primary">
+                  {{ locale.forcePasswordChangeOnFirstLogin }}
+                </p>
+                <p class="text-[10px] text-text-tertiary mt-1 leading-relaxed">
+                  {{ locale.forcePasswordChangeOnFirstLoginDesc }}
+                </p>
+              </label>
+            </div>
+          </div>
+
+          <div class="p-4 bg-bg-primary-50 border border-border-secondary rounded-xl space-y-4">
             <div class="flex items-start gap-4">
               <div class="shrink-0 pt-0.5">
                 <input
                   id="show-keywords"
                   v-model="formData.showBlacklistKeywords"
                   type="checkbox"
-                  class="w-4 h-4 rounded border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+                  class="w-4 h-4 rounded border-border-secondary bg-bg-secondary cursor-pointer"
                 />
               </div>
               <label for="show-keywords" class="cursor-pointer">
-                <p class="text-xs font-bold text-zinc-200">显示黑名单具体关键词</p>
-                <p class="text-[10px] text-zinc-500 mt-1 leading-relaxed">
-                  开启后，在投稿命中黑名单时将明确提示冲突关键词；关闭则仅提示“包含关键词”。
+                <p class="text-xs font-bold text-text-primary">{{ locale.showBlacklistKeywords }}</p>
+                <p class="text-[10px] text-text-tertiary mt-1 leading-relaxed">
+                  {{ locale.showBlacklistKeywordsDesc }}
                 </p>
               </label>
             </div>
           </div>
 
-          <div class="p-4 bg-zinc-950/50 border border-zinc-800 rounded-xl space-y-4">
+          <div class="p-4 bg-bg-primary-50 border border-border-secondary rounded-xl space-y-4">
             <div class="flex items-start gap-4">
               <div class="shrink-0 pt-0.5">
                 <input
                   id="hide-students"
                   v-model="formData.hideStudentInfo"
                   type="checkbox"
-                  class="w-4 h-4 rounded border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+                  class="w-4 h-4 rounded border-border-secondary bg-bg-secondary cursor-pointer"
                 />
               </div>
               <label for="hide-students" class="cursor-pointer">
-                <p class="text-xs font-bold text-zinc-200">隐藏学生详细信息</p>
-                <p class="text-[10px] text-zinc-500 mt-1 leading-relaxed">
-                  开启后，非管理员用户在前端点歌列表、排期预览中将无法查看投稿学生的完整学号与真实姓名。
+                <p class="text-xs font-bold text-text-primary">{{ locale.hideStudentInfo }}</p>
+                <p class="text-[10px] text-text-tertiary mt-1 leading-relaxed">
+                  {{ locale.hideStudentInfoDesc }}
                 </p>
               </label>
             </div>
           </div>
 
-          <div class="p-4 bg-zinc-950/50 border border-zinc-800 rounded-xl space-y-4">
+          <div class="p-4 bg-bg-primary-50 border border-border-secondary rounded-xl space-y-4">
             <div class="flex items-start gap-4">
               <div class="shrink-0 pt-0.5">
                 <input
                   id="telemetry-enabled"
                   v-model="formData.telemetryEnabled"
                   type="checkbox"
-                  class="w-4 h-4 rounded border-zinc-800 bg-zinc-900 accent-blue-600 cursor-pointer"
+                  class="w-4 h-4 rounded border-border-secondary bg-bg-secondary cursor-pointer"
                 />
               </div>
               <label for="telemetry-enabled" class="cursor-pointer">
-                <p class="text-xs font-bold text-zinc-200">启用错误追踪与遥测</p>
-                <p class="text-[10px] text-zinc-500 mt-1 leading-relaxed">
-                  默认开启。开启后，系统会向 Sentry
-                  发送前后端错误事件和实例在线事件（仅包含技术错误信息、实例
-                  ID、请求路径和运行时环境），用于统计实例数量并定位部署问题。<strong
-                    class="text-zinc-400"
-                    >不会收集任何个人身份信息、用户数据或业务内容</strong
-                  >。
+                <p class="text-xs font-bold text-text-primary">{{ locale.telemetryEnabled }}</p>
+                <p class="text-[10px] text-text-tertiary mt-1 leading-relaxed">
+                  {{ locale.telemetryEnabledDesc }} <strong class="text-text-tertiary">{{ locale.telemetryPrivacy }}</strong>
                 </p>
               </label>
             </div>
           </div>
 
           <div
-            class="p-4 bg-blue-500/5 border border-blue-500/10 rounded-xl flex items-start gap-3"
+            class="p-4 bg-primary-5 border border-primary-10 rounded-xl flex items-start gap-3"
           >
-            <AlertCircle class="text-blue-500 shrink-0 mt-0.5" :size="14" />
-            <p class="text-[10px] text-zinc-500 leading-normal">
-              站点基础配置在保存后将立即对所有终端生效。请在修改关键业务逻辑（如投稿限额）前确保已知晓对现有用户的影响。
+            <AlertCircle class="text-primary shrink-0 mt-0.5" :size="14" />
+            <p class="text-[10px] text-text-tertiary leading-normal">
+              {{ locale.configWarning }}
             </p>
           </div>
         </div>
@@ -508,36 +559,36 @@
 
       <!-- 投稿须知 -->
       <section
-        class="lg:col-span-2 bg-zinc-900/40 border border-zinc-800 rounded-2xl p-6 space-y-6"
+        class="lg:col-span-2 bg-bg-secondary-40 border border-border-secondary rounded-2xl p-6 space-y-6"
       >
-        <div class="flex items-center justify-between border-b border-zinc-800 pb-4">
+        <div class="flex items-center justify-between border-b border-border-secondary pb-4">
           <h3
-            class="text-sm font-black text-zinc-100 uppercase tracking-widest flex items-center gap-2"
+            class="text-sm font-black text-text-primary uppercase tracking-widest flex items-center gap-2"
           >
-            <FileText :size="16" class="text-emerald-500" /> 投稿须知
+            <FileText :size="16" class="text-success" /> {{ locale.submissionGuidelines }}
           </h3>
-          <div class="flex gap-1 bg-zinc-950 rounded-lg p-1">
+          <div class="flex gap-1 bg-bg-primary rounded-lg p-1">
             <button
               :class="[
                 'px-3 py-1.5 text-[10px] font-bold rounded-md transition-all uppercase tracking-wider',
                 editMode === 'edit'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-zinc-500 hover:text-zinc-300'
+                  ? 'bg-primary-hover text-text-primary shadow-sm'
+                  : 'text-text-tertiary hover:text-text-secondary'
               ]"
               @click="editMode = 'edit'"
             >
-              编辑
+              {{ locale.guidelinesEdit }}
             </button>
             <button
               :class="[
                 'px-3 py-1.5 text-[10px] font-bold rounded-md transition-all uppercase tracking-wider',
                 editMode === 'preview'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-zinc-500 hover:text-zinc-300'
+                  ? 'bg-primary-hover text-text-primary shadow-sm'
+                  : 'text-text-tertiary hover:text-text-secondary'
               ]"
               @click="editMode = 'preview'"
             >
-              预览
+              {{ locale.guidelinesPreview }}
             </button>
           </div>
         </div>
@@ -545,12 +596,12 @@
           v-if="editMode === 'edit'"
           v-model="formData.submissionGuidelines"
           :rows="6"
-          placeholder="请输入投稿须知内容（支持 Markdown 格式）"
+          :placeholder="locale.guidelinesPlaceholder"
           :class="[inputClass, 'font-mono text-xs leading-relaxed min-h-[150px]']"
         />
         <div
           v-else
-          class="guidelines-preview markdown-body w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-300 leading-relaxed min-h-[150px] max-h-[400px] overflow-y-auto"
+          class="guidelines-preview markdown-body w-full bg-bg-primary border border-border-secondary rounded-xl px-4 py-3 text-sm text-text-secondary leading-relaxed min-h-[150px] max-h-[400px] overflow-y-auto"
           v-html="renderedPreview"
         />
       </section>
@@ -572,14 +623,85 @@ import {
   Save,
   RotateCcw,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Palette,
+  Star
 } from '@lucide/vue'
+import AppSpinner from '~/components/UI/Common/AppSpinner.vue'
 import { useToast } from '~/composables/useToast'
+import { joinThemeLogoUrl, splitThemeLogoUrl, useSiteConfig } from '~/composables/useSiteConfig'
+import { useLocale } from '~/utils/locale'
+import { useServerErrors } from '~/composables/useLocaleText'
 import { renderMarkdown } from '~/utils/markdown'
 import { getAggregateOAuthLoginTypesOrDefault } from '~/utils/oauth'
+import { usePermissions } from '~/composables/usePermissions'
+import { THEMES } from '~/composables/useTheme'
 import OAuthConfigManager from './OAuthConfigManager.vue'
 
 const { showToast: showNotification } = useToast()
+const { refreshSiteConfig } = useSiteConfig()
+const { siteConfig: locale, theme: themeLocale } = useLocale()
+const { isSuperAdmin } = usePermissions()
+const { localize: localizeServerError } = useServerErrors()
+const themeOptions = computed(() => THEMES.map((value) => ({ value, label: themeLocale.value?.[value] || value })))
+
+const setDefaultTheme = (theme) => {
+  formData.value.defaultTheme = theme
+  const enabled = new Set(formData.value.enabledThemes)
+  enabled.add(theme)
+  formData.value.enabledThemes = THEMES.filter((item) => enabled.has(item))
+  if (theme === 'System') {
+    const enabled = new Set(formData.value.enabledThemes)
+    enabled.add('System')
+    enabled.add('ClassicDark')
+    enabled.add('ClassicLight')
+    formData.value.enabledThemes = THEMES.filter((item) => enabled.has(item))
+    showNotification(locale.value?.systemThemeAutoEnabled || '跟随系统需要经典深色和经典浅色，已自动启用', 'info')
+  }
+}
+
+const isThemeToggleLocked = (theme) => {
+  if (formData.value.defaultTheme === theme) return true
+  if (formData.value.enabledThemes.length <= 1 && formData.value.enabledThemes.includes(theme)) return true
+  return (theme === 'ClassicDark' || theme === 'ClassicLight') && formData.value.enabledThemes.includes('System')
+}
+
+const themeToggleClass = (theme) => {
+  if (isThemeToggleLocked(theme)) return 'bg-primary-80 opacity-50 cursor-not-allowed'
+  return formData.value.enabledThemes.includes(theme) ? 'bg-primary' : 'bg-bg-quaternary'
+}
+
+const toggleTheme = (theme) => {
+  if (isThemeToggleLocked(theme)) return
+  const enabled = new Set(formData.value.enabledThemes)
+  if (enabled.has(theme)) {
+    if (enabled.size <= 1 || formData.value.defaultTheme === theme) return
+    if (theme === 'ClassicDark' || theme === 'ClassicLight') {
+      if (enabled.has('System')) {
+        showNotification(locale.value?.systemThemeRequiresBothClassic || '启用跟随系统时，经典深色和经典浅色必须同时启用', 'info')
+        return
+      }
+    }
+    enabled.delete(theme)
+  } else {
+    enabled.add(theme)
+  }
+  formData.value.enabledThemes = THEMES.filter((item) => enabled.has(item))
+}
+const parseJsonArray = (value, fallback) => {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value
+    if (!Array.isArray(parsed) || parsed.length === 0) return fallback
+    let themes = parsed.filter((item) => THEMES.includes(item))
+    // 脏数据防御：跟随系统依赖经典深色/浅色同时启用，缺失时剔除 System
+    if (themes.includes('System') && (!themes.includes('ClassicDark') || !themes.includes('ClassicLight'))) {
+      themes = themes.filter((item) => item !== 'System')
+    }
+    return themes.length > 0 ? themes : fallback
+  } catch {
+    return fallback
+  }
+}
 
 const loading = ref(true)
 const saving = ref(false)
@@ -591,23 +713,17 @@ const renderedPreview = computed(() => renderMarkdown(formData.value.submissionG
 
 // 样式类常量
 const inputClass =
-  'w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500/30 transition-all placeholder:text-zinc-800'
-const labelClass = 'text-[10px] font-black text-zinc-600 uppercase tracking-widest px-1 block mb-2'
-const cardClass = 'bg-zinc-900/40 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-6'
+  'w-full bg-bg-primary border border-border-secondary rounded-xl px-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-primary-30 transition-all placeholder:text-text-primary'
+const labelClass = 'text-[10px] font-black text-text-disabled uppercase tracking-widest px-1 block mb-2'
+const cardClass = 'bg-bg-secondary-40 border border-border-secondary rounded-2xl p-6 shadow-xl space-y-6'
 
-const defaultSubmissionGuidelines = `1. 投稿时无需加入书名号
-2. 除DJ外，其他类型歌曲均接收（包括小语种）
-3. 禁止投递含有违规内容的歌曲
-4. 点播的歌曲将由管理员进行审核
-5. 审核通过后将安排在播放时段播出
-6. 提交即表明我已阅读投稿须知并已知该歌曲有概率无法播出
-7. 本系统仅提供音乐搜索和播放管理功能，不存储任何音乐文件。所有音乐内容均来自第三方音乐平台，版权归原平台及版权方所有。用户点歌时请确保遵守相关音乐平台的服务条款，尊重音乐作品版权。我们鼓励用户支持正版音乐，在官方平台购买和收听喜爱的音乐作品。
-8. 最终解释权归广播站所有`
+const defaultSubmissionGuidelines = computed(() => locale.value?.defaultSubmissionGuidelines || '请遵守校园广播站投稿规范。')
 
 const formData = ref({
   siteTitle: '',
   siteLogoUrl: '',
-  schoolLogoHomeUrl: '',
+  schoolLogoHomeDarkUrl: '',
+  schoolLogoHomeLightUrl: '',
   schoolLogoPrintUrl: '',
   siteDescription: '',
   submissionGuidelines: '',
@@ -627,6 +743,7 @@ const formData = ref({
   monthlySubmissionLimit: null,
   showBlacklistKeywords: false,
   hideStudentInfo: true,
+  forcePasswordChangeOnFirstLogin: false,
   telemetryEnabled: true,
   captchaEnabled: false,
   captchaProvider: 'graphic',
@@ -664,7 +781,9 @@ const formData = ref({
   customOAuthUsernameField: '',
   customOAuthNameField: '',
   customOAuthEmailField: '',
-  customOAuthAvatarField: ''
+  customOAuthAvatarField: '',
+  defaultTheme: 'System',
+  enabledThemes: [...THEMES]
 })
 
 const originalData = ref({})
@@ -701,6 +820,17 @@ const currentLimitValue = computed({
   }
 })
 
+const currentLimitLabel = computed(() => {
+  const limitTypeLabel =
+    activeLimitTab.value === 'daily'
+      ? locale.value?.dailyLimitLabel
+      : activeLimitTab.value === 'weekly'
+        ? locale.value?.weeklyLimitLabel
+        : locale.value?.monthlyLimitLabel
+
+  return `${locale.value?.limitLabelPrefix || '当前启用：'}${limitTypeLabel || '未设置限额'}${locale.value?.limitLabelSuffix || '投稿限制'}`
+})
+
 // 加载配置
 const loadConfig = async () => {
   try {
@@ -709,19 +839,21 @@ const loadConfig = async () => {
       credentials: 'include'
     })
 
-    if (!response.ok) throw new Error('获取配置失败')
+    if (!response.ok) throw new Error(locale.value?.fetchFailed || 'Failed to load site config')
 
     const data = await response.json()
 
     syncActiveLimitTab(data)
 
+    const schoolLogoHome = splitThemeLogoUrl(data.schoolLogoHomeUrl)
     formData.value = {
       siteTitle: data.siteTitle || '',
       siteLogoUrl: data.siteLogoUrl || '',
-      schoolLogoHomeUrl: data.schoolLogoHomeUrl || '',
+      schoolLogoHomeDarkUrl: schoolLogoHome.dark,
+      schoolLogoHomeLightUrl: schoolLogoHome.light,
       schoolLogoPrintUrl: data.schoolLogoPrintUrl || '',
       siteDescription: data.siteDescription || '',
-      submissionGuidelines: data.submissionGuidelines || defaultSubmissionGuidelines,
+      submissionGuidelines: data.submissionGuidelines || defaultSubmissionGuidelines.value,
       icpNumber: data.icpNumber || '',
       gonganNumber: data.gonganNumber || '',
       showBeianIcon: !!data.showBeianIcon,
@@ -738,6 +870,7 @@ const loadConfig = async () => {
       monthlySubmissionLimit: data.monthlySubmissionLimit ?? null,
       showBlacklistKeywords: !!data.showBlacklistKeywords,
       hideStudentInfo: data.hideStudentInfo ?? true,
+      forcePasswordChangeOnFirstLogin: data.forcePasswordChangeOnFirstLogin === true,
       telemetryEnabled: !!data.telemetryEnabled,
       captchaEnabled: !!data.captchaEnabled,
       captchaProvider: data.captchaProvider || 'graphic',
@@ -775,13 +908,15 @@ const loadConfig = async () => {
       customOAuthUsernameField: data.customOAuthUsernameField || '',
       customOAuthNameField: data.customOAuthNameField || '',
       customOAuthEmailField: data.customOAuthEmailField || '',
-      customOAuthAvatarField: data.customOAuthAvatarField || ''
+      customOAuthAvatarField: data.customOAuthAvatarField || '',
+      defaultTheme: data.defaultTheme || 'System',
+      enabledThemes: parseJsonArray(data.enabledThemes, [...THEMES])
     }
 
     originalData.value = JSON.parse(JSON.stringify(formData.value))
   } catch (error) {
-    console.error('加载配置失败:', error)
-    showNotification('加载配置失败', 'error')
+    console.error('Failed to load site config:', error)
+    showNotification(locale.value?.loadFailed || '系统设置加载失败', 'error')
   } finally {
     loading.value = false
   }
@@ -790,21 +925,51 @@ const loadConfig = async () => {
 // 保存配置
 const saveConfig = async () => {
   try {
+    if (isSuperAdmin.value) {
+      if (!formData.value.enabledThemes.includes(formData.value.defaultTheme)) {
+        showNotification(locale.value?.defaultThemeMustBeEnabled || '默认主题必须处于启用状态', 'error')
+        return
+      }
+      if (formData.value.enabledThemes.includes('System') && (!formData.value.enabledThemes.includes('ClassicDark') || !formData.value.enabledThemes.includes('ClassicLight'))) {
+        showNotification(locale.value?.systemThemeRequiresBothClassic || '启用跟随系统时，经典深色和经典浅色必须同时启用', 'error')
+        return
+      }
+    }
     saving.value = true
+    const schoolLogoHomeDarkUrl = (formData.value.schoolLogoHomeDarkUrl || '').trim()
+    const schoolLogoHomeLightUrl = schoolLogoHomeDarkUrl
+      ? (formData.value.schoolLogoHomeLightUrl || '').trim()
+      : ''
     const configToSave = {
       ...formData.value,
-      siteTitle: (formData.value.siteTitle || '').trim() || '校园广播站点歌系统',
+      schoolLogoHomeUrl: joinThemeLogoUrl(
+        schoolLogoHomeDarkUrl,
+        schoolLogoHomeLightUrl
+      ),
+      siteTitle: (formData.value.siteTitle || '').trim() || locale.value?.defaultSiteTitle || 'VoiceHub',
       siteLogoUrl: (formData.value.siteLogoUrl || '').trim() || '/favicon.ico',
       submissionGuidelines:
-        (formData.value.submissionGuidelines || '').trim() || defaultSubmissionGuidelines,
+        (formData.value.submissionGuidelines || '').trim() || defaultSubmissionGuidelines.value,
       // 确保根据限额类型处理空值
       dailySubmissionLimit:
         activeLimitTab.value === 'daily' ? formData.value.dailySubmissionLimit : null,
       weeklySubmissionLimit:
         activeLimitTab.value === 'weekly' ? formData.value.weeklySubmissionLimit : null,
       monthlySubmissionLimit:
-        activeLimitTab.value === 'monthly' ? formData.value.monthlySubmissionLimit : null
+        activeLimitTab.value === 'monthly' ? formData.value.monthlySubmissionLimit : null,
+      ...(isSuperAdmin.value
+        ? {
+            defaultTheme: formData.value.defaultTheme,
+            enabledThemes: JSON.stringify(formData.value.enabledThemes)
+          }
+        : {})
     }
+    if (!isSuperAdmin.value) {
+      delete configToSave.defaultTheme
+      delete configToSave.enabledThemes
+    }
+    delete configToSave.schoolLogoHomeDarkUrl
+    delete configToSave.schoolLogoHomeLightUrl
 
     const response = await fetch('/api/admin/system-settings', {
       method: 'POST',
@@ -814,44 +979,38 @@ const saveConfig = async () => {
     })
 
     if (!response.ok) {
-      let message = '保存配置失败'
+      let message = locale.value?.saveFailed || '系统设置保存失败'
       try {
         const errorData = await response.json()
-        console.error('API错误响应:', errorData)
+        console.error('Site config API error response:', errorData)
 
-        const getErrorMessage = (err) => {
-          if (err?.data?.error) return err.data.error
-          if (err?.message) return err.message
-          if (err?.statusMessage && err.statusMessage !== 'Error') return err.statusMessage
-          if (err?.data?.message) return err.data.message
-          if (err?.error) return err.error
-          return null
-        }
-
-        message = getErrorMessage(errorData) || '保存配置失败'
+        message = localizeServerError(errorData, locale.value?.saveFailed || '系统设置保存失败')
       } catch (parseError) {
-        console.error('无法解析API错误响应:', parseError)
+        console.error('Failed to parse site config API error:', parseError)
       }
       throw new Error(message)
     }
 
     saveSuccess.value = true
-    formData.value = { ...configToSave }
+    formData.value = {
+      ...formData.value,
+      siteTitle: configToSave.siteTitle,
+      siteLogoUrl: configToSave.siteLogoUrl
+    }
     originalData.value = JSON.parse(JSON.stringify(formData.value))
-    localStorage.setItem(
-      'voicehub.telemetryEnabled',
-      configToSave.telemetryEnabled ? 'true' : 'false'
-    )
-    showNotification('配置保存成功！', 'success')
+    localStorage.setItem('voicehub.telemetryEnabled', configToSave.telemetryEnabled ? 'true' : 'false')
+    // 刷新前端模块级缓存，避免首页等页面继续使用旧配置
+    await refreshSiteConfig()
+    showNotification(locale.value?.saveSuccess || '系统设置已保存', 'success')
 
     setTimeout(() => {
       saveSuccess.value = false
     }, 3000)
   } catch (error) {
-    console.error('保存配置失败:', error)
-    let message = '保存配置失败，请重试'
+    console.error('Failed to save site config:', error)
+    let message = locale.value?.saveFailedRetry || '系统设置保存失败，请稍后重试'
     if (error?.message) {
-      message = error.message
+      message = localizeServerError(error, error.message)
     }
     showNotification(message, 'error')
   } finally {

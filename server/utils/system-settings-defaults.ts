@@ -1,3 +1,5 @@
+import { MUSIC_SOURCE_PLATFORMS } from '~~/server/config/constants'
+
 export const SYSTEM_SETTINGS_DEFAULTS = {
   telemetryEnabled: true,
   enablePlayTimeSelection: false,
@@ -30,8 +32,14 @@ export const SYSTEM_SETTINGS_DEFAULTS = {
   enableCardCodeRequests: false,
   requireCardCodeForRequests: false,
   enableCardCodeLimitBypass: false,
+  // 重复投稿限制
+  enableSubmissionRestriction: false,
+  submissionRestrictionScope: 'all',
+  sameSongRestrictionHours: null,
+  sameArtistRestrictionHours: null,
   enableRequestTimeLimitation: false,
   forceBlockAllRequests: false,
+  forcePasswordChangeOnFirstLogin: false,
   smtpEnabled: false,
   smtpHost: null,
   smtpPort: 587,
@@ -45,7 +53,16 @@ export const SYSTEM_SETTINGS_DEFAULTS = {
   captchaMaxFailures: 3, //触发阈值
   captchaProvider: 'graphic', // 默认使用图形验证码
   turnstileSiteKey: null,
-  turnstileSecretKey: null
+  turnstileSecretKey: null,
+  // 自动备份
+  autoBackupEnabled: false,
+  autoBackupConfig: null,
+  // 主题管理
+  defaultTheme: 'System',
+  enabledThemes: JSON.stringify(['System', 'ClassicDark', 'ClassicLight', 'ModernLight']),
+  // 平台管理
+  enabledPlatforms: JSON.stringify([...MUSIC_SOURCE_PLATFORMS]),
+  platformOrder: JSON.stringify([...MUSIC_SOURCE_PLATFORMS]),
 }
 
 export const PUBLIC_SETTINGS_FIELDS = [
@@ -73,6 +90,7 @@ export const PUBLIC_SETTINGS_FIELDS = [
   'enableCardCodeLimitBypass',
   'enableRequestTimeLimitation',
   'forceBlockAllRequests',
+  'forcePasswordChangeOnFirstLogin',
   'smtpEnabled',
   'allowOAuthRegistration',
   'githubOAuthEnabled',
@@ -85,7 +103,11 @@ export const PUBLIC_SETTINGS_FIELDS = [
   'captchaEnabled',
   'captchaMaxFailures',
   'captchaProvider',
-  'turnstileSiteKey'
+  'turnstileSiteKey',
+  'enabledPlatforms',
+  'platformOrder',
+  'defaultTheme',
+  'enabledThemes'
 ]
 
 export const filterPublicSettings = (data: any) => {

@@ -1,27 +1,26 @@
 import { db } from '~/drizzle/db'
-import { requestTimes, systemSettings } from '~/drizzle/schema'
+import { requestTimes } from '~/drizzle/schema'
 import { and, eq, gt, lte } from 'drizzle-orm'
 import { getBeijingTimeISOString } from '~/utils/timeUtils'
 import { getSubmissionCount, isCardCodeLimitBypassActive } from '~~/server/utils/submissionLimit'
+import { getSystemSettingsCached } from '~~/server/utils/system-settings-helper'
+import { createApiError } from '~~/server/utils/apiError'
+import { SERVER_ERROR_CODES } from '~~/server/config/constants'
 
 export default defineEventHandler(async (event) => {
   // 检查用户认证
   const user = event.context.user
 
   if (!user) {
-    throw createError({
-      statusCode: 401,
-      message: '需要登录才能查看投稿状态'
-    })
+    throw createApiError(401, SERVER_ERROR_CODES.SONG_LOGIN_REQUIRED_VIEW_STATUS, '需要登录才能查看投稿状态')
   }
 
   try {
     // 获取系统设置
-    const systemSettingsResult = await db.select().from(systemSettings).limit(1)
-    const systemSettingsData = systemSettingsResult[0]
+    const systemSettingsData = await getSystemSettingsCached()
 
-    // 超级管理员和管理员不受投稿限制
-    const isAdmin = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN'
+    // 超级管理员、管理员、歌曲管理员不受投稿限制
+    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'SONG_ADMIN'].includes(user.role)
 
     // 基础返回结构
     const status: any = {
@@ -130,9 +129,6 @@ export default defineEventHandler(async (event) => {
     return status
   } catch (error) {
     console.error('获取投稿状态失败:', error)
-    throw createError({
-      statusCode: 500,
-      message: '获取投稿状态失败'
-    })
+    throw createApiError(500, 'SONG_FETCH_STATUS_FAILED', '获取投稿状态失败')
   }
 })
